@@ -52,6 +52,7 @@ export function computeFunnelMetrics(counts: FunnelCounts | undefined, funnel: F
     upsell1Cr: ratio(upsell1, trial),
     upsell2Cr: hasUpsell2 ? ratio(upsell2, upsell1) : null,
     hasUpsell2,
+    funnelAlias: counts?.funnelAlias,
     steps,
   };
 }

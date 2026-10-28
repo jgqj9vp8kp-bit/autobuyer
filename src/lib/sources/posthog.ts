@@ -14,7 +14,7 @@ export interface PostHogOptions {
   host: string;
   projectId: string;
   apiKey: string;
-  /** HogQL-выражение, по которому группируем, по умолчанию coalesce(properties.utm_campaign, person.properties.$initial_utm_campaign) */
+  /** HogQL-выражение, по которому группируем, по умолчанию properties.utm_campaign */
   campaignExpr?: string;
 }
 
@@ -29,29 +29,47 @@ export class PostHogError extends Error {
 }
 
 const escapeStr = (s: string) => s.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+const ident = (s: string) => s.replace(/[^a-zA-Z0-9_]/g, "_");
+
+/**
+ * Условие по свойству шага: без учёта регистра, несколько значений через `|`,
+ * префикс `!` инвертирует ("!intro|intro_soulmate" → NOT IN).
+ */
+export function propertyCondition(name: string, value: string): string {
+  const negate = value.startsWith("!");
+  const values = (negate ? value.slice(1) : value)
+    .split("|")
+    .map((v) => v.trim().toLowerCase())
+    .filter(Boolean)
+    .map((v) => `'${escapeStr(v)}'`);
+  if (!values.length) return "1";
+  return `lower(toString(properties.${ident(name)})) ${negate ? "NOT IN" : "IN"} (${values.join(", ")})`;
+}
 
 /** Строит HogQL: для каждого шага — countDistinct(person_id) по кампаниям. */
 export function buildFunnelQuery(funnel: FunnelStepDef[], dateFrom: string, dateTo: string, campaignExpr: string): string {
   const stepExprs = funnel.map((s) => {
     const cond = [`event = '${escapeStr(s.event)}'`];
-    if (s.property) cond.push(`toString(properties.${s.property.name}) = '${escapeStr(s.property.value)}'`);
-    return `countDistinctIf(person_id, ${cond.join(" AND ")}) AS ${s.key}`;
+    if (s.property?.name && s.property.value) cond.push(propertyCondition(s.property.name, s.property.value));
+    return `countDistinctIf(person_id, ${cond.join(" AND ")}) AS ${ident(s.key)}`;
   });
   const events = [...new Set(funnel.map((s) => `'${escapeStr(s.event)}'`))].join(", ");
   return `
-SELECT toString(${campaignExpr}) AS campaign, ${stepExprs.join(", ")}
+SELECT toString(${campaignExpr}) AS campaign,
+  anyIf(toString(properties.funnel_alias), toString(properties.funnel_alias) != '') AS funnel_alias,
+  ${stepExprs.join(",\n  ")}
 FROM events
 WHERE event IN (${events})
   AND timestamp >= toDateTime('${dateFrom} 00:00:00')
   AND timestamp <= toDateTime('${dateTo} 23:59:59')
   AND campaign != ''
 GROUP BY campaign
-ORDER BY ${funnel[0]?.key ?? "campaign"} DESC
+ORDER BY ${ident(funnel[0]?.key ?? "campaign")} DESC
 LIMIT 5000`.trim();
 }
 
 export async function fetchFunnelCounts(opts: PostHogOptions, funnel: FunnelStepDef[], dateFrom: string, dateTo: string): Promise<FunnelCounts[]> {
-  const campaignExpr = opts.campaignExpr ?? "coalesce(properties.utm_campaign, person.properties.$initial_utm_campaign, '')";
+  const campaignExpr = opts.campaignExpr ?? "properties.utm_campaign";
   const query = buildFunnelQuery(funnel, dateFrom, dateTo, campaignExpr);
   const url = `${opts.host.replace(/\/$/, "")}/api/projects/${opts.projectId}/query/`;
   const res = await fetch(url, {
@@ -73,7 +91,7 @@ export async function fetchFunnelCounts(opts: PostHogOptions, funnel: FunnelStep
     throw new PostHogError(msg, res.status, body);
   }
   const data = body as { columns?: string[]; results?: unknown[][] };
-  const cols = data.columns ?? ["campaign", ...funnel.map((s) => s.key)];
+  const cols = data.columns ?? ["campaign", "funnel_alias", ...funnel.map((s) => ident(s.key))];
   const out: FunnelCounts[] = [];
   for (const row of data.results ?? []) {
     const rec: Record<string, unknown> = {};
@@ -81,8 +99,9 @@ export async function fetchFunnelCounts(opts: PostHogOptions, funnel: FunnelStep
     const campaignId = String(rec.campaign ?? "");
     if (!campaignId) continue;
     const steps: Record<string, number> = {};
-    for (const s of funnel) steps[s.key] = Number(rec[s.key] ?? 0);
-    out.push({ campaignId, steps });
+    for (const s of funnel) steps[s.key] = Number(rec[ident(s.key)] ?? 0);
+    const alias = rec.funnel_alias ? String(rec.funnel_alias) : undefined;
+    out.push({ campaignId, steps, funnelAlias: alias });
   }
   return out;
 }

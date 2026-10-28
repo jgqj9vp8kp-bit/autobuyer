@@ -107,7 +107,7 @@ export function generateDemo(dateFrom: string, dateTo: string, funnel: FunnelSte
       const counts: Record<string, number> = {
         landing: visitors,
         quiz_start: s1,
-        quiz_mid: s2,
+        email_screen: s2,
         email: s3,
         paywall: s4,
         checkout: s5,
@@ -148,7 +148,7 @@ export function generateDemo(dateFrom: string, dateTo: string, funnel: FunnelSte
       roas: spend > 0 ? round2(revenue / spend) : null,
       daily,
     });
-    funnels.push({ campaignId, steps: stepTotals });
+    funnels.push({ campaignId, steps: stepTotals, funnelAlias: p.upsell2 ? "palm-reading-month-web" : "soulmate-month-web" });
   });
 
   return { campaigns, funnels };

@@ -50,7 +50,10 @@ export interface FunnelStepDef {
   key: string; // уникальный ключ шага (используется в правилах скоринга)
   label: string; // человекочитаемое имя
   event: string; // имя события PostHog
-  /** Опционально: фильтр по свойству события, например { name: "screen", value: "paywall" } */
+  /**
+   * Опционально: фильтр по свойству события. Значение сравнивается без учёта регистра;
+   * несколько вариантов через `|` ("email|signup_email"), префикс `!` — исключение ("!intro|intro_soulmate").
+   */
   property?: { name: string; value: string };
   /** Ключевая точка воронки — подсвечивается отдельно в UI и в скоринге */
   milestone?: boolean;
@@ -62,6 +65,8 @@ export interface FunnelStepDef {
 export interface FunnelCounts {
   campaignId: string;
   steps: Record<string, number>; // stepKey -> unique users
+  /** Алиас воронки (properties.funnel_alias), на которую ведёт кампания */
+  funnelAlias?: string;
 }
 
 /** Метрики воронки, вычисленные из FunnelCounts. */
@@ -75,6 +80,7 @@ export interface FunnelMetrics {
   upsell1Cr: number | null; // trial -> upsell1
   upsell2Cr: number | null; // upsell1 -> upsell2 (если есть)
   hasUpsell2: boolean;
+  funnelAlias?: string;
   steps: Array<{ key: string; label: string; count: number; fromPrev: number | null; fromStart: number | null; milestone?: boolean; optional?: boolean }>;
 }
 
@@ -108,8 +114,7 @@ export interface ScoringCriterion {
 
 export type MetricKey =
   | "firstScreenCr"
-  | "checkpointReach:quiz_mid"
-  | "checkpointReach:email"
+  | `checkpointReach:${string}`
   | "paywallReach"
   | "paywallCr"
   | "trialCr"

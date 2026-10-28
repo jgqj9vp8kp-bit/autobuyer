@@ -55,6 +55,12 @@ export default async function CampaignPage({ params, searchParams }: { params: P
           <h1 className="mt-2 text-2xl font-bold leading-tight">{ad.campaignName}</h1>
           <div className="mt-1 text-xs text-muted">
             {ad.campaignId} · {ad.buyer ?? "—"} · {ad.geo ?? "—"} · {ad.accountName ?? ad.accountId ?? ""} · {ad.status}
+            {funnel.funnelAlias && (
+              <>
+                {" "}
+                · воронка <span className="font-mono text-ink">{funnel.funnelAlias}</span>
+              </>
+            )}
           </div>
           <ul className="mt-3 space-y-1 text-sm">
             {score.insights.map((t, i) => (

@@ -10,16 +10,18 @@ export const DEFAULT_SCORING_CONFIG: ScoringConfig = {
   updatedAt: new Date(0).toISOString(),
   targetCpa: 25,
   minVisitors: 200,
+  // Шаги под реальные события PostHog проекта Azora (funnel_screen_open + screen_id, funnel_* события).
+  // Экраны intro / email / paywall / upsell_1 / upsell_2 общие для всех воронок (funnel_alias), регистр не важен.
   funnel: [
-    { key: "landing", label: "Первый экран", event: "landing_view" },
-    { key: "quiz_start", label: "Старт квиза", event: "quiz_step", property: { name: "step", value: "1" } },
-    { key: "quiz_mid", label: "Середина квиза", event: "quiz_step", property: { name: "step", value: "6" }, milestone: true },
-    { key: "email", label: "Ввод email", event: "email_submitted", milestone: true },
-    { key: "paywall", label: "Пэйвол", event: "paywall_view", milestone: true },
-    { key: "checkout", label: "Открыл чекаут", event: "checkout_open" },
-    { key: "trial", label: "Оплата триала", event: "trial_purchased", milestone: true },
-    { key: "upsell1", label: "Апсейл 1", event: "upsell_purchased", property: { name: "position", value: "1" } },
-    { key: "upsell2", label: "Апсейл 2", event: "upsell_purchased", property: { name: "position", value: "2" }, optional: true },
+    { key: "landing", label: "Первый экран (intro)", event: "funnel_screen_open", property: { name: "screen_id", value: "intro|intro_soulmate" } },
+    { key: "quiz_start", label: "Второй экран", event: "funnel_screen_open", property: { name: "screen_id", value: "!intro|intro_soulmate" } },
+    { key: "email_screen", label: "Экран email", event: "funnel_screen_open", property: { name: "screen_id", value: "email|signup_email" }, milestone: true },
+    { key: "email", label: "Ввод email", event: "funnel_email_submit", milestone: true },
+    { key: "paywall", label: "Пэйвол", event: "funnel_screen_open", property: { name: "screen_id", value: "paywall" }, milestone: true },
+    { key: "checkout", label: "Открыл чекаут", event: "funnel_checkout_open" },
+    { key: "trial", label: "Оплата (триал)", event: "funnel_purchase_success", milestone: true },
+    { key: "upsell1", label: "Апсейл 1 (покупка)", event: "upsell_purchase_success" },
+    { key: "upsell2", label: "Апсейл 2 (покупка)", event: "upsell_purchase_success", property: { name: "upsell_index", value: "2" }, optional: true },
   ],
   criteria: [
     {
@@ -40,10 +42,10 @@ export const DEFAULT_SCORING_CONFIG: ScoringConfig = {
       minSample: 100,
     },
     {
-      key: "reach_quiz_mid",
-      label: "Доходимость до середины квиза",
-      description: "Доля визитов, добравшихся до ключевой точки квиза.",
-      metric: "checkpointReach:quiz_mid",
+      key: "reach_email_screen",
+      label: "Доходимость до экрана email",
+      description: "Доля визитов, прошедших весь квиз до экрана email.",
+      metric: "checkpointReach:email_screen",
       maxPoints: 8,
       group: "funnel",
       bands: [
@@ -57,8 +59,8 @@ export const DEFAULT_SCORING_CONFIG: ScoringConfig = {
     },
     {
       key: "reach_email",
-      label: "Доходимость до email",
-      description: "Доля визитов, оставивших email.",
+      label: "Оставили email",
+      description: "Доля визитов, отправивших email.",
       metric: "checkpointReach:email",
       maxPoints: 7,
       group: "funnel",

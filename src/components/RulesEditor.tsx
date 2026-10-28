@@ -185,7 +185,7 @@ export function RulesEditor({ initial }: { initial: ScoringConfig }) {
             </button>
           </div>
           <p className="mt-3 text-[11px] leading-relaxed text-muted">
-            Ключи <code>landing</code>, <code>paywall</code>, <code>trial</code>, <code>upsell1</code>, <code>upsell2</code> зарезервированы: по ним считаются CR пэйвола, триала и апсейлов. Метрика «checkpointReach:&lt;key&gt;» работает для любого шага с флагом «ключевая точка».
+            Ключи <code>landing</code>, <code>paywall</code>, <code>trial</code>, <code>upsell1</code>, <code>upsell2</code> зарезервированы: по ним считаются CR пэйвола, триала и апсейлов. Метрика «checkpointReach:&lt;key&gt;» работает для любого шага с флагом «ключевая точка». Значение свойства сравнивается без учёта регистра; несколько вариантов — через <code>|</code>, префикс <code>!</code> — исключение (<code>!intro</code> = любой экран кроме intro).
           </p>
         </div>
       </div>
