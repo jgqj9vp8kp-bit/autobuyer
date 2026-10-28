@@ -54,9 +54,19 @@ function* dateRange(from: string, to: string) {
   }
 }
 
-export function generateDemo(dateFrom: string, dateTo: string, funnel: FunnelStepDef[]): { campaigns: AdCampaignStats[]; funnels: FunnelCounts[] } {
+export interface DemoDailyFunnel {
+  date: string;
+  steps: Record<string, number>;
+}
+
+export function generateDemo(
+  dateFrom: string,
+  dateTo: string,
+  funnel: FunnelStepDef[],
+): { campaigns: AdCampaignStats[]; funnels: FunnelCounts[]; dailyFunnels: Record<string, DemoDailyFunnel[]> } {
   const campaigns: AdCampaignStats[] = [];
   const funnels: FunnelCounts[] = [];
+  const dailyFunnels: Record<string, DemoDailyFunnel[]> = {};
   const dates = [...dateRange(dateFrom, dateTo)];
   const nDays = Math.max(1, dates.length);
 
@@ -81,6 +91,7 @@ export function generateDemo(dateFrom: string, dateTo: string, funnel: FunnelSte
 
     const stepTotals: Record<string, number> = {};
     for (const s of funnel) stepTotals[s.key] = 0;
+    const perDay: DemoDailyFunnel[] = [];
 
     dates.forEach((date, di) => {
       const spendNoise = 0.8 + rnd() * 0.4;
@@ -115,8 +126,14 @@ export function generateDemo(dateFrom: string, dateTo: string, funnel: FunnelSte
         upsell1: u1,
         upsell2: u2,
       };
-      for (const s of funnel) stepTotals[s.key] += counts[s.key] ?? Math.round((counts.paywall ?? 0) * 0.5);
+      const daySteps: Record<string, number> = {};
+      for (const s of funnel) {
+        daySteps[s.key] = counts[s.key] ?? Math.round((counts.paywall ?? 0) * 0.5);
+        stepTotals[s.key] += daySteps[s.key];
+      }
+      perDay.push({ date, steps: daySteps });
     });
+    dailyFunnels[campaignId] = perDay;
 
     const spend = sum(daily.map((d) => d.spend));
     const impressions = sum(daily.map((d) => d.impressions));
@@ -151,7 +168,7 @@ export function generateDemo(dateFrom: string, dateTo: string, funnel: FunnelSte
     funnels.push({ campaignId, steps: stepTotals, funnelAlias: p.upsell2 ? "palm-reading-month-web" : "soulmate-month-web" });
   });
 
-  return { campaigns, funnels };
+  return { campaigns, funnels, dailyFunnels };
 }
 
 const sum = (a: number[]) => a.reduce((s, v) => s + v, 0);

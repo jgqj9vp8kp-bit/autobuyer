@@ -6,25 +6,44 @@ import { DailyChart } from "@/components/DailyChart";
 import { DateRange } from "@/components/DateRange";
 import { FunnelBars } from "@/components/FunnelBars";
 import { ScoreRing } from "@/components/ScoreRing";
+import { ScoreHistoryChart } from "@/components/ScoreHistoryChart";
 import { Card, Kicker, VerdictPill } from "@/components/ui";
+import { loadConfig } from "@/lib/configStore";
 import { defaultRange, evaluateCached } from "@/lib/evaluate";
 import { fmtMoney, fmtNum, fmtPct } from "@/lib/format";
+import { scoreHistoryCached } from "@/lib/history";
 import { VERDICT_META } from "@/lib/verdict";
+import clsx from "clsx";
 import { Suspense } from "react";
 
 export const dynamic = "force-dynamic";
 
-export default async function CampaignPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ from?: string; to?: string; r?: string }> }) {
+const HISTORY_PRESETS = [14, 30, 60];
+
+export default async function CampaignPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ from?: string; to?: string; r?: string; hist?: string }>;
+}) {
   const { id } = await params;
   const sp = await searchParams;
   const def = defaultRange();
   const from = sp.from ?? def.dateFrom;
   const to = sp.to ?? def.dateTo;
+  const histDays = HISTORY_PRESETS.includes(Number(sp.hist)) ? Number(sp.hist) : 14;
   const data = await evaluateCached(from, to, Boolean(sp.r));
   const row = data.campaigns.find((c) => c.ad.campaignId === id);
   if (!row) notFound();
   const { ad, funnel, score } = row;
   const meta = VERDICT_META[score.verdict];
+  const [history, cfg] = await Promise.all([scoreHistoryCached(ad, to, histDays, 7), loadConfig()]);
+  const scored = history.points.filter((p) => p.verdict !== "NO_DATA");
+  const first = scored[0];
+  const last = scored[scored.length - 1];
+  const delta = first && last && first !== last ? last.score - first.score : null;
+  const histQuery = (d: number) => `?from=${from}&to=${to}&hist=${d}`;
 
   const stat = (label: string, value: string, sub?: string) => (
     <div className="rounded-2xl bg-subtle p-4">
@@ -77,6 +96,40 @@ export default async function CampaignPage({ params, searchParams }: { params: P
           {stat("Визиты", fmtNum(funnel.visitors), `CTR ${ad.ctr.toFixed(2)}%`)}
           {stat("ROAS", ad.roas ? `${ad.roas.toFixed(2)}x` : "—", `выручка ${fmtMoney(ad.revenue)}`)}
         </div>
+      </Card>
+
+      <Card>
+        <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <Kicker>Динамика · скользящее окно {history.windowDays} дн.</Kicker>
+            <h2 className="text-lg font-bold">Как менялся скор</h2>
+            <p className="mt-1 text-xs text-muted">
+              Точка на дату = скор по данным за {history.windowDays} дней до неё включительно. Пунктир — границы вердиктов.
+              {history.source === "demo" && " Демо-данные."}
+              {history.note && ` ${history.note}`}
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            {delta !== null && (
+              <div className={clsx("rounded-full px-3 py-1 text-xs font-semibold", delta > 0 ? "bg-success-soft text-success" : delta < 0 ? "bg-danger-soft text-danger" : "bg-subtle text-muted")}>
+                {delta > 0 ? "+" : ""}
+                {delta} за {histDays} дн.
+              </div>
+            )}
+            <div className="flex items-center gap-1 rounded-full border border-line bg-white p-1">
+              {HISTORY_PRESETS.map((d) => (
+                <Link key={d} href={histQuery(d)} className={clsx("rounded-full px-3 py-1 text-xs font-semibold", d === histDays ? "bg-ink text-white" : "text-muted hover:bg-subtle hover:text-ink")}>
+                  {d} дн.
+                </Link>
+              ))}
+            </div>
+          </div>
+        </div>
+        {scored.length ? (
+          <ScoreHistoryChart points={history.points} thresholds={cfg.verdicts} />
+        ) : (
+          <div className="py-10 text-center text-sm text-muted">За выбранный период ни в одном окне не набралось данных для оценки.</div>
+        )}
       </Card>
 
       <div className="grid gap-6 lg:grid-cols-[1.1fr_1fr]">

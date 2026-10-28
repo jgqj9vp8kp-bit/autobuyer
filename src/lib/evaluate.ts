@@ -18,6 +18,21 @@ export function isLiveMode(): boolean {
   return env("DATA_MODE").toLowerCase() === "live";
 }
 
+/** Настройки источников из env (null — источник не сконфигурирован). */
+export function sourcesConfig() {
+  const capsuledKey = env("CAPSULED_API_KEY");
+  const phKey = env("POSTHOG_API_KEY");
+  const phProject = env("POSTHOG_PROJECT_ID");
+  return {
+    live: isLiveMode(),
+    capsuled: capsuledKey ? { baseUrl: env("CAPSULED_API_URL") || "https://capsuled.space/api/external/v1", apiKey: capsuledKey } : null,
+    posthog:
+      phKey && phProject
+        ? { host: env("POSTHOG_HOST") || "https://eu.posthog.com", projectId: phProject, apiKey: phKey, campaignExpr: env("POSTHOG_CAMPAIGN_EXPR") || undefined }
+        : null,
+  };
+}
+
 export async function evaluateCampaigns(dateFrom: string, dateTo: string): Promise<EvaluationResponse> {
   const cfg = await loadConfig();
   const sources: SourceStatus[] = [];
