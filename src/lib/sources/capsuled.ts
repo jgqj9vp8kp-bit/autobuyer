@@ -9,7 +9,8 @@ import type { AdCampaignStats, DailyAdStats } from "@/lib/types";
  * При includeDaily=true каждая строка rows — ОДНА кампания за ОДИН день:
  *   date, adAccountId, adAccountName, buyer, campaignId, campaignName, spend, fbPurchases (канонические
  *   покупки Meta), cpp, impressions, clicks, ctr, cpc, cpm, reach, frequency, linkClicks, landingPageViews,
- *   registrations, actions[{action_type,value}], … (статуса кампании и гео в ответе нет).
+ *   registrations, actions[{action_type,value}], … (статуса кампании и гео по таргетингу в ответе нет;
+ *   гео запрошено у команды дашборда, см. geoOf()).
  * Здесь дневные строки агрегируются по campaignId в AdCampaignStats + daily[]. Маппер остаётся
  * толерантным к альтернативным именам полей и к форме «одна строка на кампанию с вложенным daily».
  */
@@ -64,6 +65,26 @@ const num = (v: unknown): number => {
 };
 
 const str = (v: unknown): string | undefined => (v === undefined || v === null || v === "" ? undefined : String(v));
+
+/**
+ * Гео по таргетингу. Сейчас API его не отдаёт (запрошено у команды дашборда); маппер готов к любому из
+ * ожидаемых вариантов: `targetingCountries: ["JP","US"]`, `geoCountries`, `countries`, `geo`, `country`
+ * (строка или массив) либо сырой объект FB `targeting.geo_locations.countries`.
+ */
+const GEO_KEYS = ["targetingCountries", "geoCountries", "targetingGeo", "countries", "geo", "country"];
+function geoOf(row: AnyRecord): string | undefined {
+  let v = pick(row, GEO_KEYS);
+  if (v === undefined) {
+    const targeting = row.targeting as AnyRecord | undefined;
+    const geoLocations = targeting?.geo_locations as AnyRecord | undefined;
+    v = geoLocations?.countries;
+  }
+  if (Array.isArray(v)) {
+    const list = [...new Set(v.map((x) => String(x).toUpperCase()))].filter(Boolean);
+    return list.length ? list.join(", ") : undefined;
+  }
+  return str(v);
+}
 
 function dailyFromRow(r: AnyRecord): DailyAdStats | null {
   const date = str(pick(r, DATE_KEYS));
@@ -125,7 +146,7 @@ function aggregateCampaign(campaignId: string, rows: AnyRecord[], latestActiveDa
     status: explicitStatus ?? derivedStatus,
     lastActiveDate,
     objective: str(pick(latestRow, ["objective"])),
-    geo: str(pick(latestRow, ["geo", "country", "countries"])),
+    geo: geoOf(latestRow),
     spend,
     impressions,
     clicks,
