@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
 import { ArrowLeft, Lightbulb, Wrench } from "lucide-react";
 import { CriteriaBreakdown } from "@/components/CriteriaBreakdown";
 import { DailyChart } from "@/components/DailyChart";
@@ -10,7 +9,7 @@ import { ScoreHistoryChart } from "@/components/ScoreHistoryChart";
 import { Card, Kicker, VerdictPill } from "@/components/ui";
 import { loadConfig } from "@/lib/configStore";
 import { defaultRange, evaluateCached } from "@/lib/evaluate";
-import { fmtMoney, fmtNum, fmtPct } from "@/lib/format";
+import { addDaysIso, fmtMoney, fmtNum, fmtPct } from "@/lib/format";
 import { scoreHistoryCached } from "@/lib/history";
 import { VERDICT_META } from "@/lib/verdict";
 import clsx from "clsx";
@@ -18,7 +17,36 @@ import { Suspense } from "react";
 
 export const dynamic = "force-dynamic";
 
-const HISTORY_PRESETS = [14, 30, 60];
+const HISTORY_PRESETS = [14, 30, 60, 90];
+
+const safeDecode = (s: string) => {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+};
+
+function NotFoundInRange({ id, from, to }: { id: string; from: string; to: string }) {
+  const wideFrom = addDaysIso(to, -59);
+  return (
+    <div className="card mx-auto mt-20 max-w-md p-8 text-center">
+      <div className="kicker">Нет данных</div>
+      <h1 className="mt-1 text-2xl font-bold">Кампания {id} не найдена</h1>
+      <p className="mt-2 text-sm text-muted">
+        Ни в периоде {from} — {to}, ни за последние 30 дней по ней нет событий воронки и статистики.
+      </p>
+      <div className="mt-4 flex flex-wrap justify-center gap-2">
+        <Link href={`/campaigns/${encodeURIComponent(id)}?from=${wideFrom}&to=${to}`} className="btn btn-ghost">
+          Посмотреть за 60 дней
+        </Link>
+        <Link href={`/?from=${from}&to=${to}`} className="btn btn-dark">
+          К списку кампаний
+        </Link>
+      </div>
+    </div>
+  );
+}
 
 export default async function CampaignPage({
   params,
@@ -27,15 +55,33 @@ export default async function CampaignPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ from?: string; to?: string; r?: string; hist?: string }>;
 }) {
-  const { id } = await params;
+  const { id: rawId } = await params;
+  // id кампании может содержать пробелы (TikTok: "BR_hand_1-5 PR") — в params он приходит закодированным
+  const id = safeDecode(rawId);
   const sp = await searchParams;
   const def = defaultRange();
-  const from = sp.from ?? def.dateFrom;
+  const requestedFrom = sp.from ?? def.dateFrom;
   const to = sp.to ?? def.dateTo;
-  const histDays = HISTORY_PRESETS.includes(Number(sp.hist)) ? Number(sp.hist) : 14;
+  let from = requestedFrom;
+  // Окно истории по умолчанию — ближайший пресет, покрывающий выбранный период
+  const rangeDays = Math.round((new Date(to).getTime() - new Date(requestedFrom).getTime()) / 86400000) + 1;
+  const defaultHist = HISTORY_PRESETS.find((d) => d >= rangeDays) ?? HISTORY_PRESETS[HISTORY_PRESETS.length - 1];
+  const histDays = HISTORY_PRESETS.includes(Number(sp.hist)) ? Number(sp.hist) : defaultHist;
   const data = await evaluateCached(from, to, Boolean(sp.r));
-  const row = data.campaigns.find((c) => c.ad.campaignId === id);
-  if (!row) notFound();
+  let row = data.campaigns.find((c) => c.ad.campaignId === id);
+  let rangeNote: string | null = null;
+  if (!row) {
+    // В выбранном периоде кампании нет (не крутилась или период короткий) — пробуем последние 30 дней
+    const wideFrom = addDaysIso(to, -29);
+    if (wideFrom < from) {
+      row = (await evaluateCached(wideFrom, to)).campaigns.find((c) => c.ad.campaignId === id);
+      if (row) {
+        rangeNote = `За ${requestedFrom} — ${to} по этой кампании нет данных, показан период ${wideFrom} — ${to}.`;
+        from = wideFrom;
+      }
+    }
+  }
+  if (!row) return <NotFoundInRange id={id} from={requestedFrom} to={to} />;
   const { ad, funnel, score } = row;
   const meta = VERDICT_META[score.verdict];
   const [history, cfg] = await Promise.all([scoreHistoryCached(ad, to, histDays, 7), loadConfig()]);
@@ -63,6 +109,8 @@ export default async function CampaignPage({
           <DateRange from={from} to={to} />
         </Suspense>
       </div>
+
+      {rangeNote && <div className="rounded-2xl border border-warn/30 bg-warn-soft px-4 py-3 text-sm text-ink">{rangeNote}</div>}
 
       <Card className="flex flex-wrap items-center gap-6">
         <ScoreRing score={score.score} grade={score.grade} />

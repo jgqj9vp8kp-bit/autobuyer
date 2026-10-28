@@ -55,7 +55,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: SP
         <KpiTile label="остановить" value={byVerdict("PAUSE").length} sub={`${fmtMoney(pauseSpend)} под риском`} />
       </section>
 
-      <CampaignTable rows={rows} />
+      <CampaignTable rows={rows} linkQuery={`from=${from}&to=${to}`} />
 
       <p className="text-xs text-muted">
         Период {from} — {to}. Пересчитано {new Date(data.generatedAt).toLocaleTimeString("ru-RU")}. Скор = сумма баллов по включённым критериям / максимум; пороги настраиваются в разделе «Правила».

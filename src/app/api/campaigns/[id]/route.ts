@@ -3,7 +3,8 @@ import { defaultRange, evaluateCached } from "@/lib/evaluate";
 
 /** GET /api/campaigns/:id?from&to — оценка одной кампании. */
 export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const { id } = await ctx.params;
+  const { id: rawId } = await ctx.params;
+  const id = decodeURIComponent(rawId);
   const sp = req.nextUrl.searchParams;
   const def = defaultRange();
   const data = await evaluateCached(sp.get("from") ?? def.dateFrom, sp.get("to") ?? def.dateTo);

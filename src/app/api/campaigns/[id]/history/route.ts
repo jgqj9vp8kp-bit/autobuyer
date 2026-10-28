@@ -4,7 +4,8 @@ import { scoreHistoryCached } from "@/lib/history";
 
 /** GET /api/campaigns/:id/history?to=YYYY-MM-DD&days=14&window=7 — скор по дням (скользящее окно). */
 export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const { id } = await ctx.params;
+  const { id: rawId } = await ctx.params;
+  const id = decodeURIComponent(rawId);
   const sp = req.nextUrl.searchParams;
   const def = defaultRange();
   const to = sp.get("to") ?? def.dateTo;

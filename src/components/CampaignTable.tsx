@@ -11,7 +11,8 @@ import { VERDICT_META } from "@/lib/verdict";
 
 type SortKey = "score" | "spend" | "purchases" | "cpa" | "trialCr" | "paywallCr" | "visitors";
 
-export function CampaignTable({ rows }: { rows: CampaignEvaluation[] }) {
+export function CampaignTable({ rows, linkQuery }: { rows: CampaignEvaluation[]; linkQuery?: string }) {
+  const campaignHref = (id: string) => `/campaigns/${encodeURIComponent(id)}${linkQuery ? `?${linkQuery}` : ""}`;
   const [q, setQ] = useState("");
   const [buyer, setBuyer] = useState<string>("all");
   const [verdict, setVerdict] = useState<Verdict | "all">("all");
@@ -137,7 +138,7 @@ export function CampaignTable({ rows }: { rows: CampaignEvaluation[] }) {
                     <ScoreBadge score={r.score.score} grade={r.score.grade} size="sm" />
                   </td>
                   <td className="max-w-[320px]">
-                    <Link href={`/campaigns/${r.ad.campaignId}`} className="block truncate font-semibold hover:underline">
+                    <Link href={campaignHref(r.ad.campaignId)} className="block truncate font-semibold hover:underline">
                       {r.ad.campaignName}
                     </Link>
                     <div className="mt-0.5 flex items-center gap-2 text-[11px] text-muted">
@@ -156,7 +157,7 @@ export function CampaignTable({ rows }: { rows: CampaignEvaluation[] }) {
                   <td className="text-right tabular-nums">{fmtPct(r.funnel.paywallCr)}</td>
                   <td className="max-w-[220px] truncate text-xs text-muted">{worst ? `${worst.label}: ${worst.note.split(" — ")[0]}` : r.score.verdict === "NO_DATA" ? "нет данных воронки" : "—"}</td>
                   <td>
-                    <Link href={`/campaigns/${r.ad.campaignId}`} className="text-muted hover:text-ink">
+                    <Link href={campaignHref(r.ad.campaignId)} className="text-muted hover:text-ink">
                       <ChevronRight size={16} />
                     </Link>
                   </td>

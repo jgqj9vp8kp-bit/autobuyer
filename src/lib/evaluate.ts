@@ -131,19 +131,45 @@ function campaignFromFunnel(f: FunnelCounts, dateFrom: string, dateTo: string): 
   };
 }
 
-/** Простой in-memory кеш на 2 минуты, чтобы не долбить источники при каждом рендере. */
+/**
+ * Простой in-memory кеш на 2 минуты, чтобы не долбить источники при каждом рендере.
+ * Если в live-режиме источники временно отвалились (сеть, таймаут), отдаём последний
+ * удачный результат по этому периоду вместо демо-данных — иначе страницы кампаний
+ * «пропадают» на время сбоя.
+ */
 const cache = new Map<string, { at: number; value: EvaluationResponse }>();
+const lastGood = new Map<string, { at: number; value: EvaluationResponse }>();
+const STALE_TTL = 6 * 60 * 60 * 1000;
+
+const fellBackToDemo = (v: EvaluationResponse) => isLiveMode() && v.mode === "demo";
+
 export async function evaluateCached(dateFrom: string, dateTo: string, force = false): Promise<EvaluationResponse> {
   const key = `${dateFrom}:${dateTo}:${isLiveMode() ? "live" : "demo"}`;
   const hit = cache.get(key);
   if (!force && hit && Date.now() - hit.at < 120_000) return hit.value;
-  const value = await evaluateCampaigns(dateFrom, dateTo);
+  let value = await evaluateCampaigns(dateFrom, dateTo);
+  if (fellBackToDemo(value)) {
+    const good = lastGood.get(key);
+    if (good && Date.now() - good.at < STALE_TTL) {
+      const failed = value.sources.filter((s) => !s.ok).map((s) => s.message).join("; ");
+      value = {
+        ...good.value,
+        sources: [
+          ...good.value.sources,
+          { source: "demo", ok: false, message: `Источники недоступны (${failed}) — показаны данные от ${new Date(good.at).toLocaleTimeString("ru-RU")}`, checkedAt: value.generatedAt },
+        ],
+      };
+    }
+  } else if (isLiveMode()) {
+    lastGood.set(key, { at: Date.now(), value });
+  }
   cache.set(key, { at: Date.now(), value });
   return value;
 }
 
 export function invalidateCache() {
   cache.clear();
+  lastGood.clear();
 }
 
 /** Диапазон дат по умолчанию: последние 7 дней включительно. */
