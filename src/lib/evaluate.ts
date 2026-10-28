@@ -52,7 +52,9 @@ export async function evaluateCampaigns(dateFrom: string, dateTo: string): Promi
         const r = await fetchCampaignStats({ baseUrl, apiKey }, dateFrom, dateTo);
         campaigns = r.campaigns;
         await cacheRaw("capsuled-last", r.raw);
-        sources.push({ source: "capsuled", ok: true, message: `Получено кампаний: ${r.campaigns.length}`, checkedAt: now });
+        const imported = r.meta.lastImportAt ? new Date(r.meta.lastImportAt).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : null;
+        const fresh = r.meta.fbStatsTo ? `; данные FB до ${r.meta.fbStatsTo}${imported ? `, импорт ${imported}` : ""}` : "";
+        sources.push({ source: "capsuled", ok: true, message: `Получено кампаний: ${r.campaigns.length}${r.meta.truncated ? " (ответ усечён, сузьте период)" : ""}${fresh}`, checkedAt: now });
       } catch (e) {
         const err = e as Error & { status?: number };
         sources.push({ source: "capsuled", ok: false, message: `${err.status ? `HTTP ${err.status}: ` : ""}${err.message}`, checkedAt: now });
@@ -74,6 +76,19 @@ export async function evaluateCampaigns(dateFrom: string, dateTo: string): Promi
         const err = e as Error & { status?: number };
         sources.push({ source: "posthog", ok: false, message: `${err.status ? `HTTP ${err.status}: ` : ""}${err.message}`, checkedAt: now });
       }
+    }
+  }
+
+  if (campaigns && funnels) {
+    // Кампании, которых нет в дашборде (TikTok, остановленные), но с заметным трафиком в PostHog: показываем без расхода
+    const known = new Set(campaigns.map((c) => c.campaignId));
+    const firstStep = cfg.funnel[0]?.key;
+    const minVisits = Math.max(30, Math.round(cfg.minVisitors / 4));
+    const extra = funnels.filter((f) => !known.has(f.campaignId) && firstStep && (f.steps[firstStep] ?? 0) >= minVisits).map((f) => campaignFromFunnel(f, dateFrom, dateTo));
+    if (extra.length) {
+      campaigns = [...campaigns, ...extra];
+      const ph = sources.find((s) => s.source === "posthog");
+      if (ph) ph.message += `, из них ${extra.length} нет в дашборде (показаны без расхода)`;
     }
   }
 

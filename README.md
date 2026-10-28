@@ -59,9 +59,11 @@ src/app/api/                  evaluate, campaigns/:id, config (GET/PUT/DELETE), 
 ## Источники
 
 **Дашборд баеров** — `GET {CAPSULED_API_URL}/fb-stats?dateFrom&dateTo&level=campaign&includeDaily=true&includeInactive=true&limit=10000`,
-`Authorization: Bearer <key>`. Схема ответа пока не подтверждена (ключ возвращал `401 invalid_token`), поэтому маппер
-в `capsuled.ts` ищет поля по нескольким вариантам имён; сырой ответ первого успешного запроса сохраняется
-в `data/cache/capsuled-last.json` — по нему нужно сверить маппинг.
+`Authorization: Bearer <key>`. При `includeDaily=true` каждая строка `rows[]` — одна кампания за один день
+(`date, campaignId, campaignName, buyer, adAccountId, adAccountName, spend, fbPurchases, impressions, clicks, reach, …`);
+`capsuled.ts` агрегирует их по `campaignId` в сводку + `daily[]`. Покупки берутся из `fbPurchases` (канонические покупки Meta).
+Статуса кампании в API нет: кампания считается активной, если тратила в один из двух последних дней данных.
+Сырой ответ последнего запроса сохраняется в `data/cache/capsuled-last.json`.
 
 **PostHog** — один HogQL-запрос через `POST /api/projects/:id/query` (personal API key с `query:read`):
 для каждого шага `countDistinctIf(person_id, event = '…' [AND properties.x = '…'])`, группировка по

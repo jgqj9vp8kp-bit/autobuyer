@@ -1,17 +1,31 @@
 import type { AdCampaignStats, DailyAdStats } from "@/lib/types";
+import { addDaysIso } from "@/lib/format";
 
 /**
- * Клиент дашборда баеров (capsuled.space, /api/external/v1/fb-stats).
+ * Клиент дашборда баеров «FB Ads Ops» (capsuled.space, GET /api/external/v1/fb-stats).
  *
- * Точная схема ответа пока не подтверждена (ключ на момент разработки возвращал 401),
- * поэтому маппер толерантен к именам полей: ищет campaignId / campaign_id / id и т.п.
- * После первого успешного запроса сырой ответ сохраняется в data/cache/capsuled-last.json,
- * чтобы сверить маппинг.
+ * Схема ответа (подтверждена 2026-10-28):
+ *   { ok, version:"v1", source:"facebook", range:{dateFrom,dateTo}, level, currency:"USD",
+ *     dataFreshness:{fbStatsTo,lastImportAt}, rowCount, totalRows, truncated, limit, notes[], rows[] }
+ * При includeDaily=true каждая строка rows — ОДНА кампания за ОДИН день:
+ *   date, adAccountId, adAccountName, buyer, campaignId, campaignName, spend, fbPurchases (канонические
+ *   покупки Meta), cpp, impressions, clicks, ctr, cpc, cpm, reach, frequency, linkClicks, landingPageViews,
+ *   registrations, actions[{action_type,value}], … (статуса кампании и гео в ответе нет).
+ * Здесь дневные строки агрегируются по campaignId в AdCampaignStats + daily[]. Маппер остаётся
+ * толерантным к альтернативным именам полей и к форме «одна строка на кампанию с вложенным daily».
  */
 
 export interface CapsuledOptions {
   baseUrl: string;
   apiKey: string;
+}
+
+export interface CapsuledMeta {
+  fbStatsTo?: string;
+  lastImportAt?: string;
+  totalRows?: number;
+  truncated?: boolean;
+  currency?: string;
 }
 
 export class CapsuledError extends Error {
@@ -25,6 +39,14 @@ export class CapsuledError extends Error {
 }
 
 type AnyRecord = Record<string, unknown>;
+
+const ID_KEYS = ["campaignId", "campaign_id", "fbCampaignId", "id"];
+const DATE_KEYS = ["date", "day", "date_start", "dateStart"];
+const SPEND_KEYS = ["spend", "cost", "amountSpent", "amount_spent", "totalSpend"];
+const IMPR_KEYS = ["impressions", "imps"];
+const CLICK_KEYS = ["clicks", "clicksAll", "linkClicks", "link_clicks", "inline_link_clicks"];
+const PURCHASE_KEYS = ["fbPurchases", "purchases", "results", "conversions", "trials", "purchase"];
+const REVENUE_KEYS = ["revenue", "purchaseConversionValue", "purchaseValue", "purchase_value", "conversionValue"];
 
 const pick = (o: AnyRecord, keys: string[]): unknown => {
   for (const k of keys) {
@@ -42,69 +64,99 @@ const num = (v: unknown): number => {
   return 0;
 };
 
-const str = (v: unknown): string | undefined => (v === undefined || v === null ? undefined : String(v));
+const str = (v: unknown): string | undefined => (v === undefined || v === null || v === "" ? undefined : String(v));
 
-function mapDaily(rows: unknown): DailyAdStats[] {
-  if (!Array.isArray(rows)) return [];
-  return rows
-    .map((r) => r as AnyRecord)
-    .map((r) => ({
-      date: String(pick(r, ["date", "day", "date_start", "dateStart"]) ?? ""),
-      spend: num(pick(r, ["spend", "cost", "amountSpent", "amount_spent"])),
-      impressions: num(pick(r, ["impressions", "imps"])),
-      clicks: num(pick(r, ["clicks", "linkClicks", "link_clicks", "inline_link_clicks"])),
-      purchases: num(pick(r, ["purchases", "conversions", "results", "trials", "purchase"])),
-      revenue: num(pick(r, ["revenue", "purchaseValue", "purchase_value", "conversionValue"])),
-    }))
-    .filter((d) => d.date);
+function dailyFromRow(r: AnyRecord): DailyAdStats | null {
+  const date = str(pick(r, DATE_KEYS));
+  if (!date) return null;
+  return {
+    date: date.slice(0, 10),
+    spend: num(pick(r, SPEND_KEYS)),
+    impressions: num(pick(r, IMPR_KEYS)),
+    clicks: num(pick(r, CLICK_KEYS)),
+    purchases: num(pick(r, PURCHASE_KEYS)),
+    revenue: num(pick(r, REVENUE_KEYS)),
+  };
 }
 
-function normalizeStatus(v: unknown): AdCampaignStats["status"] {
-  const s = String(v ?? "").toUpperCase();
+function normalizeStatus(v: unknown): AdCampaignStats["status"] | undefined {
+  if (v === undefined || v === null) return undefined;
+  const s = String(v).toUpperCase();
   if (s.includes("ACTIVE") || s === "RUNNING") return "ACTIVE";
   if (s.includes("PAUSE")) return "PAUSED";
   if (s.includes("ARCHIV") || s.includes("DELETE")) return "ARCHIVED";
   return "UNKNOWN";
 }
 
-/** Нормализует одну строку ответа дашборда в AdCampaignStats. */
-export function mapCapsuledRow(row: AnyRecord): AdCampaignStats {
-  const campaignId = String(pick(row, ["campaignId", "campaign_id", "fbCampaignId", "id"]) ?? "");
-  const spend = num(pick(row, ["spend", "cost", "amountSpent", "amount_spent", "totalSpend"]));
-  const impressions = num(pick(row, ["impressions", "imps"]));
-  const clicks = num(pick(row, ["clicks", "linkClicks", "link_clicks", "inline_link_clicks"]));
-  const purchases = num(pick(row, ["purchases", "conversions", "results", "trials", "purchase"]));
-  const revenue = num(pick(row, ["revenue", "purchaseValue", "purchase_value", "conversionValue"]));
-  const reach = pick(row, ["reach"]);
-  const freq = pick(row, ["frequency"]);
-  const ctrRaw = pick(row, ["ctr"]);
-  const cpcRaw = pick(row, ["cpc"]);
-  const cpmRaw = pick(row, ["cpm"]);
+/**
+ * Собирает одну кампанию из её строк (дневных или одной сводной).
+ * `latestDate` — последний день, за который в ответе вообще есть данные: кампания считается активной,
+ * если тратила в один из двух последних дней (своего поля статуса в API нет).
+ */
+function aggregateCampaign(campaignId: string, rows: AnyRecord[], latestDate: string | undefined): AdCampaignStats {
+  const first = rows[0];
+  const nested = rows.length === 1 ? pick(first, ["daily", "days", "dailyStats", "byDay"]) : undefined;
+  const daily = (Array.isArray(nested) ? nested.map((x) => dailyFromRow(x as AnyRecord)) : rows.map(dailyFromRow))
+    .filter((d): d is DailyAdStats => d !== null)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const fromDaily = daily.length > 0 && !nested;
+  const sum = (f: (d: DailyAdStats) => number) => daily.reduce((s, d) => s + f(d), 0);
+
+  const spend = fromDaily ? sum((d) => d.spend) : num(pick(first, SPEND_KEYS));
+  const impressions = fromDaily ? sum((d) => d.impressions) : num(pick(first, IMPR_KEYS));
+  const clicks = fromDaily ? sum((d) => d.clicks) : num(pick(first, CLICK_KEYS));
+  const purchases = fromDaily ? sum((d) => d.purchases) : num(pick(first, PURCHASE_KEYS));
+  const revenue = fromDaily ? sum((d) => d.revenue) : num(pick(first, REVENUE_KEYS));
+  const reachRaw = fromDaily ? rows.reduce((s, r) => s + num(pick(r, ["reach"])), 0) : num(pick(first, ["reach"]));
+  const reach = reachRaw > 0 ? reachRaw : undefined;
+
+  // Имя/баер/аккаунт — из самой свежей строки (кампанию могли переименовать)
+  const latestRow = rows.reduce((a, b) => (String(pick(b, DATE_KEYS) ?? "") >= String(pick(a, DATE_KEYS) ?? "") ? b : a), first);
+  const explicitStatus = normalizeStatus(pick(latestRow, ["status", "effectiveStatus", "effective_status", "campaignStatus"]));
+  const lastSpendDay = [...daily].reverse().find((d) => d.spend > 0)?.date;
+  const derivedStatus: AdCampaignStats["status"] = lastSpendDay && latestDate && addDaysIso(lastSpendDay, 1) >= latestDate ? "ACTIVE" : "UNKNOWN";
 
   return {
     campaignId,
-    campaignName: String(pick(row, ["campaignName", "campaign_name", "name"]) ?? campaignId),
-    accountId: str(pick(row, ["accountId", "account_id", "adAccountId"])),
-    accountName: str(pick(row, ["accountName", "account_name"])),
-    buyer: str(pick(row, ["buyer", "buyerName", "user", "userName", "owner", "manager"])),
-    status: normalizeStatus(pick(row, ["status", "effectiveStatus", "effective_status"])),
-    objective: str(pick(row, ["objective"])),
-    geo: str(pick(row, ["geo", "country", "countries"])),
+    campaignName: String(pick(latestRow, ["campaignName", "campaign_name", "name"]) ?? campaignId),
+    accountId: str(pick(latestRow, ["adAccountId", "accountId", "account_id"])),
+    accountName: str(pick(latestRow, ["adAccountName", "accountName", "account_name"])),
+    buyer: str(pick(latestRow, ["buyer", "buyerName", "user", "userName", "owner", "manager"])),
+    status: explicitStatus ?? derivedStatus,
+    objective: str(pick(latestRow, ["objective"])),
+    geo: str(pick(latestRow, ["geo", "country", "countries"])),
     spend,
     impressions,
     clicks,
-    reach: reach !== undefined ? num(reach) : undefined,
-    frequency: freq !== undefined ? num(freq) : reach ? impressions / Math.max(1, num(reach)) : undefined,
-    ctr: ctrRaw !== undefined ? num(ctrRaw) : impressions > 0 ? (clicks / impressions) * 100 : 0,
-    cpc: cpcRaw !== undefined ? num(cpcRaw) : clicks > 0 ? spend / clicks : 0,
-    cpm: cpmRaw !== undefined ? num(cpmRaw) : impressions > 0 ? (spend / impressions) * 1000 : 0,
+    reach,
+    frequency: reach ? impressions / reach : undefined,
+    ctr: impressions > 0 ? (clicks / impressions) * 100 : 0,
+    cpc: clicks > 0 ? spend / clicks : 0,
+    cpm: impressions > 0 ? (spend / impressions) * 1000 : 0,
     purchases,
     revenue,
     cpa: purchases > 0 ? spend / purchases : null,
     roas: spend > 0 && revenue > 0 ? revenue / spend : null,
-    daily: mapDaily(pick(row, ["daily", "days", "dailyStats", "byDay"])),
-    raw: row,
+    daily,
+    // Полные строки (с массивами actions) не тащим в ответ: они уходят на клиент вместе с таблицей
+    raw: { source: "capsuled", rows: rows.length, dateFrom: daily[0]?.date, dateTo: daily[daily.length - 1]?.date },
   };
+}
+
+/** Нормализует строки ответа дашборда (дневные или сводные) в список кампаний. */
+export function mapCapsuledRows(rows: AnyRecord[]): AdCampaignStats[] {
+  const groups = new Map<string, AnyRecord[]>();
+  let latestDate: string | undefined;
+  for (const r of rows) {
+    const id = str(pick(r, ID_KEYS));
+    if (!id) continue;
+    const g = groups.get(id);
+    if (g) g.push(r);
+    else groups.set(id, [r]);
+    const d = str(pick(r, DATE_KEYS))?.slice(0, 10);
+    if (d && (!latestDate || d > latestDate)) latestDate = d;
+  }
+  return [...groups].map(([id, rs]) => aggregateCampaign(id, rs, latestDate));
 }
 
 /** Достаёт массив строк из ответа любой из типичных форм. */
@@ -112,7 +164,7 @@ export function extractRows(payload: unknown): AnyRecord[] {
   if (Array.isArray(payload)) return payload as AnyRecord[];
   if (payload && typeof payload === "object") {
     const o = payload as AnyRecord;
-    for (const k of ["data", "items", "rows", "campaigns", "results", "stats"]) {
+    for (const k of ["rows", "data", "items", "campaigns", "results", "stats"]) {
       const v = o[k];
       if (Array.isArray(v)) return v as AnyRecord[];
       if (v && typeof v === "object") {
@@ -124,7 +176,20 @@ export function extractRows(payload: unknown): AnyRecord[] {
   return [];
 }
 
-export async function fetchCampaignStats(opts: CapsuledOptions, dateFrom: string, dateTo: string): Promise<{ campaigns: AdCampaignStats[]; raw: unknown }> {
+function extractMeta(payload: unknown): CapsuledMeta {
+  if (!payload || typeof payload !== "object") return {};
+  const o = payload as AnyRecord;
+  const fresh = (o.dataFreshness ?? {}) as AnyRecord;
+  return {
+    fbStatsTo: str(fresh.fbStatsTo),
+    lastImportAt: str(fresh.lastImportAt),
+    totalRows: o.totalRows !== undefined ? num(o.totalRows) : undefined,
+    truncated: o.truncated === true,
+    currency: str(o.currency),
+  };
+}
+
+export async function fetchCampaignStats(opts: CapsuledOptions, dateFrom: string, dateTo: string): Promise<{ campaigns: AdCampaignStats[]; raw: unknown; meta: CapsuledMeta }> {
   const url = new URL(`${opts.baseUrl.replace(/\/$/, "")}/fb-stats`);
   url.searchParams.set("dateFrom", dateFrom);
   url.searchParams.set("dateTo", dateTo);
@@ -149,7 +214,5 @@ export async function fetchCampaignStats(opts: CapsuledOptions, dateFrom: string
     const msg = body && typeof body === "object" && "message" in body ? String((body as AnyRecord).message) : `HTTP ${res.status}`;
     throw new CapsuledError(msg, res.status, body);
   }
-  const rows = extractRows(body);
-  const campaigns = rows.map(mapCapsuledRow).filter((c) => c.campaignId);
-  return { campaigns, raw: body };
+  return { campaigns: mapCapsuledRows(extractRows(body)), raw: body, meta: extractMeta(body) };
 }
