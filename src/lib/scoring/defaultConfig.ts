@@ -21,8 +21,8 @@ export const DEFAULT_SCORING_CONFIG: ScoringConfig = {
     { key: "checkout", label: "Открыл чекаут", event: "funnel_checkout_open" },
     { key: "trial", label: "Оплата (триал)", event: "funnel_purchase_success", milestone: true },
     // upsell_purchase_success несёт product: zodiac_report (экран upsell_1) и love_map (экран upsell_2)
-    { key: "upsell1", label: "Апсейл 1 (покупка)", event: "upsell_purchase_success" },
-    { key: "upsell2", label: "Апсейл 2 (love_map)", event: "upsell_purchase_success", property: { name: "product", value: "love_map" }, optional: true },
+    { key: "upsell1", label: "Апсейл 1", event: "upsell_purchase_success" },
+    { key: "upsell2", label: "Апсейл 2", event: "upsell_purchase_success", property: { name: "product", value: "love_map" }, optional: true },
   ],
   criteria: [
     {

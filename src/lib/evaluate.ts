@@ -63,6 +63,12 @@ export async function evaluateCampaigns(dateFrom: string, dateTo: string): Promi
   }
 
   let mode: EvaluationResponse["mode"] = "live";
+  if (!campaigns && funnels && funnels.length) {
+    // Дашборд баеров недоступен, но PostHog отвечает: показываем кампании из воронки без рекламных метрик
+    campaigns = funnels.map((f) => campaignFromFunnel(f, dateFrom, dateTo));
+    const cap = sources.find((s) => s.source === "capsuled");
+    if (cap) cap.message += " — кампании собраны из PostHog (utm_campaign), расход/CPA недоступны";
+  }
   if (!campaigns) {
     const demo = generateDemo(dateFrom, dateTo, cfg.funnel);
     campaigns = demo.campaigns;
@@ -84,6 +90,30 @@ export async function evaluateCampaigns(dateFrom: string, dateTo: string): Promi
   evaluated.sort((a, b) => b.score.score - a.score.score || b.ad.spend - a.ad.spend);
 
   return { dateFrom, dateTo, mode, sources, campaigns: evaluated, generatedAt: now };
+}
+
+/** Заглушка рекламной статистики для кампании, известной только по воронке PostHog. */
+function campaignFromFunnel(f: FunnelCounts, dateFrom: string, dateTo: string): AdCampaignStats {
+  const isFbId = /^\d{12,}$/.test(f.campaignId);
+  return {
+    campaignId: f.campaignId,
+    campaignName: isFbId ? `FB ${f.campaignId}${f.funnelAlias ? ` · ${f.funnelAlias}` : ""}` : f.campaignId,
+    buyer: undefined,
+    status: "UNKNOWN",
+    geo: undefined,
+    spend: 0,
+    impressions: 0,
+    clicks: 0,
+    ctr: 0,
+    cpc: 0,
+    cpm: 0,
+    purchases: f.steps.trial ?? 0,
+    revenue: 0,
+    cpa: null,
+    roas: null,
+    daily: [],
+    raw: { source: "posthog", dateFrom, dateTo },
+  };
 }
 
 /** Простой in-memory кеш на 2 минуты, чтобы не долбить источники при каждом рендере. */

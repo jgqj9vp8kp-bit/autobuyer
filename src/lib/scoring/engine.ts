@@ -232,15 +232,26 @@ export function scoreCampaign(ad: AdCampaignStats, funnel: FunnelMetrics, cfg: S
   }
 
   const score = Math.round((earned / possible) * 100);
+  let verdict = verdictFor(score, cfg);
+  const insights = insightsFor(results, ad, funnel, score);
+  // На малой выборке не даём «масштабировать»: высокий скор по 2–3 критериям ещё ничего не значит
+  const tooSmall = Math.max(30, Math.round(cfg.minVisitors / 4));
+  if (funnel.visitors < tooSmall) {
+    verdict = "NO_DATA";
+    insights.unshift(`Всего ${funnel.visitors} визитов (нужно хотя бы ${tooSmall}) — вердикт не выносится, скор справочный.`);
+  } else if (verdict === "SCALE" && funnel.visitors < cfg.minVisitors) {
+    verdict = "KEEP";
+    insights.unshift(`Выборка мала (${funnel.visitors} из ${cfg.minVisitors} визитов) — вердикт «масштабировать» придержан до набора данных.`);
+  }
   return {
     campaignId: ad.campaignId,
     score,
     grade: gradeFor(score),
-    verdict: verdictFor(score, cfg),
+    verdict,
     pointsEarned: Math.round(earned * 10) / 10,
     pointsPossible: possible,
     criteria: results,
-    insights: insightsFor(results, ad, funnel, score),
+    insights,
     recommendations: recommendationsFor(results, ad, funnel),
   };
 }
