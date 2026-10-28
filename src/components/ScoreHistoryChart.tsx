@@ -7,14 +7,13 @@ import { VERDICT_META } from "@/lib/verdict";
 
 const COLOR: Record<string, string> = { SCALE: "#1f9d5a", KEEP: "#ffc743", OPTIMIZE: "#d98a00", PAUSE: "#d93a3a", NO_DATA: "#d0cdd7" };
 
-/** Какую долю высоты графика занимает самый высокий столбец визитов (подложка под линией скора). */
-const BAR_MAX_SHARE = 0.2;
-
 export function ScoreHistoryChart({ points, thresholds }: { points: ScorePoint[]; thresholds: { scale: number; keep: number; optimize: number } }) {
   const data = points.map((p) => ({ ...p, label: fmtDate(p.day), plotScore: p.verdict === "NO_DATA" ? null : p.score }));
-  // Столбцы визитов — фон: растягиваем ось так, чтобы самый высокий занимал ~20% высоты и не перекрывал линию скора
+  // Столбцы визитов — подложка под линией скора. Масштаб правой оси подбираем так, чтобы самый высокий
+  // относительно скора столбец ровно касался линии, а все остальные были ниже неё.
   const maxVisitors = Math.max(1, ...data.map((d) => d.visitors));
-  const visitorsDomainMax = Math.ceil(maxVisitors / BAR_MAX_SHARE);
+  const ratio = Math.max(0, ...data.filter((d) => d.plotScore !== null).map((d) => d.visitors / Math.max(5, d.plotScore ?? 0)));
+  const visitorsDomainMax = Math.ceil(ratio > 0 ? ratio * 100 : maxVisitors * 5);
   return (
     <div className="w-full">
       <div className="h-64">
@@ -44,7 +43,7 @@ export function ScoreHistoryChart({ points, thresholds }: { points: ScorePoint[]
               return [String(value), String(name)];
             }}
           />
-          <Bar yAxisId="visitors" dataKey="visitors" fill="#e4e1e8" radius={[3, 3, 0, 0]} maxBarSize={28} />
+          <Bar yAxisId="visitors" dataKey="visitors" fill="#e4e1e8" radius={[4, 4, 0, 0]} />
           <Area
             yAxisId="score"
             type="monotone"
@@ -68,7 +67,7 @@ export function ScoreHistoryChart({ points, thresholds }: { points: ScorePoint[]
           <span className="inline-block h-0.5 w-4 rounded bg-ink" /> скор
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <span className="inline-block h-3 w-2.5 rounded-sm bg-[#e4e1e8]" /> визиты в окне, условный масштаб (макс. {fmtNum(maxVisitors)}; точные цифры — в подсказке)
+          <span className="inline-block h-3 w-2.5 rounded-sm bg-[#e4e1e8]" /> визиты в окне, условный масштаб: самый высокий столбец ({fmtNum(maxVisitors)}) касается линии скора, точные цифры — в подсказке
         </span>
       </div>
     </div>
