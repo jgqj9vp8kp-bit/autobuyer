@@ -62,7 +62,7 @@ src/app/api/                  evaluate, campaigns/:id, config (GET/PUT/DELETE), 
 `Authorization: Bearer <key>`. При `includeDaily=true` каждая строка `rows[]` — одна кампания за один день
 (`date, campaignId, campaignName, buyer, adAccountId, adAccountName, spend, fbPurchases, impressions, clicks, reach, …`);
 `capsuled.ts` агрегирует их по `campaignId` в сводку + `daily[]`. Покупки берутся из `fbPurchases` (канонические покупки Meta).
-Статуса кампании в API нет: кампания считается активной, если тратила в один из двух последних дней данных.
+Статуса кампании в API нет: «активная» = есть показы или расход за последний день, по которому у дашборда вообще есть данные; «неактивная» = открутка была раньше в периоде, но не в этот день.
 Сырой ответ последнего запроса сохраняется в `data/cache/capsuled-last.json`.
 
 **PostHog** — один HogQL-запрос через `POST /api/projects/:id/query` (personal API key с `query:read`):

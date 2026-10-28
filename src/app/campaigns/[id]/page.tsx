@@ -9,7 +9,7 @@ import { ScoreHistoryChart } from "@/components/ScoreHistoryChart";
 import { Card, Kicker, VerdictPill } from "@/components/ui";
 import { loadConfig } from "@/lib/configStore";
 import { defaultRange, evaluateCached } from "@/lib/evaluate";
-import { addDaysIso, fmtMoney, fmtNum, fmtPct } from "@/lib/format";
+import { addDaysIso, fmtMoney, fmtNum, fmtPct, fmtStatus } from "@/lib/format";
 import { scoreHistoryCached } from "@/lib/history";
 import { VERDICT_META } from "@/lib/verdict";
 import clsx from "clsx";
@@ -121,7 +121,7 @@ export default async function CampaignPage({
           </div>
           <h1 className="mt-2 text-2xl font-bold leading-tight">{ad.campaignName}</h1>
           <div className="mt-1 text-xs text-muted">
-            {ad.campaignId} · {ad.buyer ?? "—"} · {ad.geo ?? "—"} · {ad.accountName ?? ad.accountId ?? ""} · {ad.status}
+            {ad.campaignId} · {ad.buyer ?? "—"} · {ad.geo ?? "—"} · {ad.accountName ?? ad.accountId ?? ""} · {fmtStatus(ad)}
             {funnel.funnelAlias && (
               <>
                 {" "}

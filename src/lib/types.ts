@@ -26,7 +26,10 @@ export interface AdCampaignStats {
   accountId?: string;
   accountName?: string;
   buyer?: string;
-  status: "ACTIVE" | "PAUSED" | "ARCHIVED" | "UNKNOWN";
+  /** INACTIVE — была открутка в периоде, но не в последний день с данными (статус выведен по расходу, своего у API нет) */
+  status: "ACTIVE" | "INACTIVE" | "PAUSED" | "ARCHIVED" | "UNKNOWN";
+  /** Последний день с показами или расходом (YYYY-MM-DD) */
+  lastActiveDate?: string;
   objective?: string;
   geo?: string;
   spend: number;

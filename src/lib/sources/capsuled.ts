@@ -1,5 +1,4 @@
 import type { AdCampaignStats, DailyAdStats } from "@/lib/types";
-import { addDaysIso } from "@/lib/format";
 
 /**
  * Клиент дашборда баеров «FB Ads Ops» (capsuled.space, GET /api/external/v1/fb-stats).
@@ -90,10 +89,11 @@ function normalizeStatus(v: unknown): AdCampaignStats["status"] | undefined {
 
 /**
  * Собирает одну кампанию из её строк (дневных или одной сводной).
- * `latestDate` — последний день, за который в ответе вообще есть данные: кампания считается активной,
- * если тратила в один из двух последних дней (своего поля статуса в API нет).
+ * Своего поля статуса в API нет, поэтому статус выводится по открутке: `latestActiveDate` — последний день,
+ * за который хоть у одной кампании есть показы или расход. Кампания с откруткой в этот день — ACTIVE,
+ * с откруткой только раньше — INACTIVE, без открутки вовсе — UNKNOWN.
  */
-function aggregateCampaign(campaignId: string, rows: AnyRecord[], latestDate: string | undefined): AdCampaignStats {
+function aggregateCampaign(campaignId: string, rows: AnyRecord[], latestActiveDate: string | undefined): AdCampaignStats {
   const first = rows[0];
   const nested = rows.length === 1 ? pick(first, ["daily", "days", "dailyStats", "byDay"]) : undefined;
   const daily = (Array.isArray(nested) ? nested.map((x) => dailyFromRow(x as AnyRecord)) : rows.map(dailyFromRow))
@@ -113,8 +113,8 @@ function aggregateCampaign(campaignId: string, rows: AnyRecord[], latestDate: st
   // Имя/баер/аккаунт — из самой свежей строки (кампанию могли переименовать)
   const latestRow = rows.reduce((a, b) => (String(pick(b, DATE_KEYS) ?? "") >= String(pick(a, DATE_KEYS) ?? "") ? b : a), first);
   const explicitStatus = normalizeStatus(pick(latestRow, ["status", "effectiveStatus", "effective_status", "campaignStatus"]));
-  const lastSpendDay = [...daily].reverse().find((d) => d.spend > 0)?.date;
-  const derivedStatus: AdCampaignStats["status"] = lastSpendDay && latestDate && addDaysIso(lastSpendDay, 1) >= latestDate ? "ACTIVE" : "UNKNOWN";
+  const lastActiveDate = [...daily].reverse().find((d) => d.spend > 0 || d.impressions > 0)?.date;
+  const derivedStatus: AdCampaignStats["status"] = !lastActiveDate ? "UNKNOWN" : latestActiveDate && lastActiveDate >= latestActiveDate ? "ACTIVE" : "INACTIVE";
 
   return {
     campaignId,
@@ -123,6 +123,7 @@ function aggregateCampaign(campaignId: string, rows: AnyRecord[], latestDate: st
     accountName: str(pick(latestRow, ["adAccountName", "accountName", "account_name"])),
     buyer: str(pick(latestRow, ["buyer", "buyerName", "user", "userName", "owner", "manager"])),
     status: explicitStatus ?? derivedStatus,
+    lastActiveDate,
     objective: str(pick(latestRow, ["objective"])),
     geo: str(pick(latestRow, ["geo", "country", "countries"])),
     spend,
@@ -146,7 +147,7 @@ function aggregateCampaign(campaignId: string, rows: AnyRecord[], latestDate: st
 /** Нормализует строки ответа дашборда (дневные или сводные) в список кампаний. */
 export function mapCapsuledRows(rows: AnyRecord[]): AdCampaignStats[] {
   const groups = new Map<string, AnyRecord[]>();
-  let latestDate: string | undefined;
+  let latestActiveDate: string | undefined;
   for (const r of rows) {
     const id = str(pick(r, ID_KEYS));
     if (!id) continue;
@@ -154,9 +155,10 @@ export function mapCapsuledRows(rows: AnyRecord[]): AdCampaignStats[] {
     if (g) g.push(r);
     else groups.set(id, [r]);
     const d = str(pick(r, DATE_KEYS))?.slice(0, 10);
-    if (d && (!latestDate || d > latestDate)) latestDate = d;
+    const active = num(pick(r, SPEND_KEYS)) > 0 || num(pick(r, IMPR_KEYS)) > 0;
+    if (d && active && (!latestActiveDate || d > latestActiveDate)) latestActiveDate = d;
   }
-  return [...groups].map(([id, rs]) => aggregateCampaign(id, rs, latestDate));
+  return [...groups].map(([id, rs]) => aggregateCampaign(id, rs, latestActiveDate));
 }
 
 /** Достаёт массив строк из ответа любой из типичных форм. */

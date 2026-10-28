@@ -1,3 +1,5 @@
+import type { AdCampaignStats } from "@/lib/types";
+
 export const fmtMoney = (v: number | null | undefined, digits = 0) =>
   v === null || v === undefined ? "—" : `$${v.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
 
@@ -20,3 +22,20 @@ export const fmtDate = (iso: string) => {
   const d = new Date(iso + (iso.length === 10 ? "T00:00:00" : ""));
   return d.toLocaleDateString("ru-RU", { day: "2-digit", month: "short" });
 };
+
+/** Человекочитаемый статус кампании (у дашборда своего статуса нет, он выводится по открутке). */
+export function fmtStatus(ad: Pick<AdCampaignStats, "status" | "lastActiveDate">): string {
+  const last = ad.lastActiveDate ? fmtDate(ad.lastActiveDate) : null;
+  switch (ad.status) {
+    case "ACTIVE":
+      return last ? `крутится (открутка ${last})` : "крутится";
+    case "INACTIVE":
+      return last ? `не крутится, последняя открутка ${last}` : "не крутится";
+    case "PAUSED":
+      return "на паузе";
+    case "ARCHIVED":
+      return "в архиве";
+    default:
+      return "статус неизвестен";
+  }
+}
