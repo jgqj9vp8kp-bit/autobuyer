@@ -152,7 +152,7 @@ export default async function CampaignPage({
             <Kicker>Динамика · скользящее окно {history.windowDays} дн.</Kicker>
             <h2 className="text-lg font-bold">Как менялся скор</h2>
             <p className="mt-1 text-xs text-muted">
-              Точка на дату = скор по данным за {history.windowDays} дней до неё включительно. Пунктир — границы вердиктов, серые столбцы внизу — объём визитов.
+              Точка на дату = скор по данным за {history.windowDays} дней до неё включительно. Пунктир — границы вердиктов, визиты и триалы — в подсказке при наведении.
               {history.source === "demo" && " Демо-данные."}
               {history.note && ` ${history.note}`}
             </p>
