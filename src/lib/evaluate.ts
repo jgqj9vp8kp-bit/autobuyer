@@ -1,10 +1,11 @@
-import { cacheRaw, loadConfig } from "@/lib/configStore";
+import { cacheRaw, loadAllConfigs } from "@/lib/configStore";
+import { DEFAULT_PRODUCT, detectProduct, PRODUCT_KEYS } from "@/lib/products";
 import { computeFunnelMetrics } from "@/lib/scoring/funnel";
 import { scoreCampaign } from "@/lib/scoring/engine";
 import { fetchCampaignStats } from "@/lib/sources/capsuled";
 import { generateDemo } from "@/lib/sources/demo";
 import { fetchFunnelCounts } from "@/lib/sources/posthog";
-import type { AdCampaignStats, CampaignEvaluation, EvaluationResponse, FunnelCounts, SourceStatus } from "@/lib/types";
+import type { AdCampaignStats, CampaignEvaluation, EvaluationResponse, FunnelCounts, ProductKey, SourceStatus } from "@/lib/types";
 
 /**
  * Оркестрация: берём кампании из дашборда, воронку из PostHog, считаем скор.
@@ -34,12 +35,15 @@ export function sourcesConfig() {
 }
 
 export async function evaluateCampaigns(dateFrom: string, dateTo: string): Promise<EvaluationResponse> {
-  const cfg = await loadConfig();
+  // Правила у каждого продукта свои; cfg продукта по умолчанию используется для общих решений (демо, пороги выборки)
+  const configs = await loadAllConfigs();
+  const cfg = configs[DEFAULT_PRODUCT];
   const sources: SourceStatus[] = [];
   const now = new Date().toISOString();
 
   let campaigns: AdCampaignStats[] | null = null;
   let funnels: FunnelCounts[] | null = null;
+  const funnelsByProduct: Partial<Record<ProductKey, FunnelCounts[]>> = {};
 
   if (isLiveMode()) {
     // --- Дашборд баеров
@@ -69,9 +73,22 @@ export async function evaluateCampaigns(dateFrom: string, dateTo: string): Promi
       sources.push({ source: "posthog", ok: false, message: "POSTHOG_API_KEY / POSTHOG_PROJECT_ID не заданы", checkedAt: now });
     } else {
       try {
-        funnels = await fetchFunnelCounts({ host: phHost, projectId: phProject, apiKey: phKey, campaignExpr: env("POSTHOG_CAMPAIGN_EXPR") || undefined }, cfg.funnel, dateFrom, dateTo);
+        const opts = { host: phHost, projectId: phProject, apiKey: phKey, campaignExpr: env("POSTHOG_CAMPAIGN_EXPR") || undefined };
+        // Один запрос на каждую уникальную воронку: продукты с одинаковыми шагами делят запрос
+        const byDef = new Map<string, ProductKey[]>();
+        for (const p of PRODUCT_KEYS) {
+          const k = JSON.stringify(configs[p].funnel);
+          byDef.set(k, [...(byDef.get(k) ?? []), p]);
+        }
+        const results = await Promise.all([...byDef.values()].map(async (ps) => [ps, await fetchFunnelCounts(opts, configs[ps[0]].funnel, dateFrom, dateTo)] as const));
+        const merged = new Map<string, FunnelCounts>();
+        for (const [ps, list] of results) {
+          for (const p of ps) funnelsByProduct[p] = list;
+          for (const f of list) if (!merged.has(f.campaignId)) merged.set(f.campaignId, f);
+        }
+        funnels = [...merged.values()];
         await cacheRaw("posthog-last", funnels);
-        sources.push({ source: "posthog", ok: true, message: `Воронки по кампаниям: ${funnels.length}`, checkedAt: now });
+        sources.push({ source: "posthog", ok: true, message: `Воронки по кампаниям: ${funnels.length}${results.length > 1 ? ` (${results.length} запроса, воронки продуктов различаются)` : ""}`, checkedAt: now });
       } catch (e) {
         const err = e as Error & { status?: number };
         sources.push({ source: "posthog", ok: false, message: `${err.status ? `HTTP ${err.status}: ` : ""}${err.message}`, checkedAt: now });
@@ -111,10 +128,20 @@ export async function evaluateCampaigns(dateFrom: string, dateTo: string): Promi
   }
 
   const funnelById = new Map(funnels.map((f) => [f.campaignId, f]));
+  const byProduct = new Map<ProductKey, Map<string, FunnelCounts>>();
+  for (const p of PRODUCT_KEYS) {
+    const list = funnelsByProduct[p];
+    if (list) byProduct.set(p, new Map(list.map((f) => [f.campaignId, f])));
+  }
   const evaluated: CampaignEvaluation[] = campaigns.map((ad) => {
-    const funnel = computeFunnelMetrics(funnelById.get(ad.campaignId), cfg.funnel);
-    const score = scoreCampaign(ad, funnel, cfg);
-    return { ad, funnel, score };
+    const anyCounts = funnelById.get(ad.campaignId);
+    // Продукт — по домену воронки из PostHog, иначе по названию кампании/аккаунта; правила берём его
+    const { product, source: productSource } = detectProduct(ad, anyCounts?.host);
+    const pcfg = configs[product ?? DEFAULT_PRODUCT];
+    const counts = (product && byProduct.get(product)?.get(ad.campaignId)) || anyCounts;
+    const funnel = computeFunnelMetrics(counts, pcfg.funnel);
+    const score = scoreCampaign(ad, funnel, pcfg);
+    return { ad, funnel, score, product, productSource };
   });
 
   evaluated.sort((a, b) => b.score.score - a.score.score || b.ad.spend - a.ad.spend);

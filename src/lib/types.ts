@@ -9,6 +9,11 @@
 
 export type DataSource = "capsuled" | "posthog" | "demo";
 
+/** Продукты, на которые льётся трафик; у каждого свои правила скоринга (см. lib/products.ts). */
+export type ProductKey = "azora" | "foxiq" | "robella";
+/** Откуда взят продукт кампании */
+export type ProductSource = "posthog" | "name-url" | "name" | "account" | "none";
+
 /** Дневная статистика по рекламе. */
 export interface DailyAdStats {
   date: string; // YYYY-MM-DD
@@ -70,6 +75,8 @@ export interface FunnelCounts {
   steps: Record<string, number>; // stepKey -> unique users
   /** Алиас воронки (properties.funnel_alias), на которую ведёт кампания */
   funnelAlias?: string;
+  /** Домен воронки (properties.$host) — по нему определяется продукт */
+  host?: string;
 }
 
 /** Метрики воронки, вычисленные из FunnelCounts. */
@@ -177,6 +184,9 @@ export interface CampaignEvaluation {
   ad: AdCampaignStats;
   funnel: FunnelMetrics;
   score: CampaignScore;
+  /** Продукт кампании (null — не определён, оценена по правилам продукта по умолчанию) */
+  product: ProductKey | null;
+  productSource: ProductSource;
 }
 
 export interface SourceStatus {

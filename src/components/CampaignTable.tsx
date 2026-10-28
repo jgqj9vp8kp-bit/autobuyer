@@ -7,6 +7,7 @@ import { ArrowDown, ArrowUp, ChevronRight, Search } from "lucide-react";
 import type { CampaignEvaluation, Verdict } from "@/lib/types";
 import { fmtDate, fmtMoney, fmtNum, fmtPct, fmtStatus } from "@/lib/format";
 import { ScoreBadge, VerdictPill } from "@/components/ui";
+import { PRODUCT_LABEL } from "@/lib/products";
 import { VERDICT_META } from "@/lib/verdict";
 
 type SortKey = "score" | "spend" | "purchases" | "cpa" | "trialCr" | "paywallCr" | "visitors";
@@ -45,7 +46,7 @@ export function CampaignTable({ rows, linkQuery }: { rows: CampaignEvaluation[];
       }
     };
     return rows
-      .filter((r) => (q ? `${r.ad.campaignName} ${r.ad.campaignId} ${r.ad.buyer ?? ""}`.toLowerCase().includes(q.toLowerCase()) : true))
+      .filter((r) => (q ? `${r.ad.campaignName} ${r.ad.campaignId} ${r.ad.buyer ?? ""} ${r.product ?? ""}`.toLowerCase().includes(q.toLowerCase()) : true))
       .filter((r) => (buyer === "all" ? true : (r.ad.buyer ?? "—") === buyer))
       .filter((r) => (verdict === "all" ? true : r.score.verdict === verdict))
       .filter((r) => (status === "all" ? true : status === "active" ? r.ad.status === "ACTIVE" : INACTIVE_STATUSES.has(r.ad.status)))
@@ -168,7 +169,8 @@ export function CampaignTable({ rows, linkQuery }: { rows: CampaignEvaluation[];
                     </Link>
                     <div className="mt-0.5 flex items-center gap-2 text-[11px] text-muted">
                       <span className={clsx("h-1.5 w-1.5 rounded-full", r.ad.status === "ACTIVE" ? "bg-success" : "bg-line")} title={fmtStatus(r.ad)} />
-                      {r.ad.buyer ?? "—"} · {r.ad.geo ?? "—"} · {r.ad.campaignId}
+                      <span className={clsx("font-semibold", r.product ? "text-ink" : "text-muted")}>{r.product ? PRODUCT_LABEL[r.product] : "?"}</span> · {r.ad.buyer ?? "—"} · {r.ad.geo ?? "—"} ·{" "}
+                      {r.ad.campaignId}
                     </div>
                   </td>
                   <td>

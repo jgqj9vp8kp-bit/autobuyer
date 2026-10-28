@@ -1,32 +1,55 @@
 import { promises as fs } from "fs";
 import path from "path";
 import { DEFAULT_SCORING_CONFIG } from "@/lib/scoring/defaultConfig";
-import type { ScoringConfig } from "@/lib/types";
+import { DEFAULT_PRODUCT, PRODUCT_KEYS } from "@/lib/products";
+import type { ProductKey, ScoringConfig } from "@/lib/types";
 
-/** Конфиг скоринга хранится в data/scoring-config.json (создаётся при первом обращении). */
+/**
+ * Конфиг скоринга хранится отдельно для каждого продукта: data/scoring-config.<product>.json.
+ * Если файла продукта нет, берётся общий data/scoring-config.json (конфиг до разделения по продуктам),
+ * а если нет и его — значения по умолчанию.
+ */
 const DATA_DIR = path.join(process.cwd(), "data");
-const CONFIG_PATH = path.join(DATA_DIR, "scoring-config.json");
+const LEGACY_PATH = path.join(DATA_DIR, "scoring-config.json");
+const configPath = (product: ProductKey) => path.join(DATA_DIR, `scoring-config.${product}.json`);
 
-export async function loadConfig(): Promise<ScoringConfig> {
+async function readJson(file: string): Promise<Partial<ScoringConfig> | null> {
   try {
-    const raw = await fs.readFile(CONFIG_PATH, "utf8");
-    const parsed = JSON.parse(raw) as ScoringConfig;
-    // Мягкая миграция: добавляем недостающие поля из дефолта
-    return { ...DEFAULT_SCORING_CONFIG, ...parsed, verdicts: { ...DEFAULT_SCORING_CONFIG.verdicts, ...(parsed.verdicts ?? {}) } };
+    return JSON.parse(await fs.readFile(file, "utf8")) as Partial<ScoringConfig>;
   } catch {
-    return DEFAULT_SCORING_CONFIG;
+    return null;
   }
 }
 
-export async function saveConfig(cfg: ScoringConfig): Promise<ScoringConfig> {
+/** Мягкая миграция: добавляем недостающие поля из дефолта. */
+const withDefaults = (parsed: Partial<ScoringConfig>): ScoringConfig => ({
+  ...DEFAULT_SCORING_CONFIG,
+  ...parsed,
+  verdicts: { ...DEFAULT_SCORING_CONFIG.verdicts, ...(parsed.verdicts ?? {}) },
+});
+
+export async function loadConfig(product: ProductKey = DEFAULT_PRODUCT): Promise<ScoringConfig> {
+  const own = await readJson(configPath(product));
+  if (own) return withDefaults(own);
+  const legacy = await readJson(LEGACY_PATH);
+  if (legacy) return withDefaults(legacy);
+  return DEFAULT_SCORING_CONFIG;
+}
+
+export async function loadAllConfigs(): Promise<Record<ProductKey, ScoringConfig>> {
+  const entries = await Promise.all(PRODUCT_KEYS.map(async (p) => [p, await loadConfig(p)] as const));
+  return Object.fromEntries(entries) as Record<ProductKey, ScoringConfig>;
+}
+
+export async function saveConfig(product: ProductKey, cfg: ScoringConfig): Promise<ScoringConfig> {
   await fs.mkdir(DATA_DIR, { recursive: true });
   const next = { ...cfg, updatedAt: new Date().toISOString() };
-  await fs.writeFile(CONFIG_PATH, JSON.stringify(next, null, 2), "utf8");
+  await fs.writeFile(configPath(product), JSON.stringify(next, null, 2), "utf8");
   return next;
 }
 
-export async function resetConfig(): Promise<ScoringConfig> {
-  return saveConfig({ ...DEFAULT_SCORING_CONFIG, version: DEFAULT_SCORING_CONFIG.version + 1 });
+export async function resetConfig(product: ProductKey): Promise<ScoringConfig> {
+  return saveConfig(product, { ...DEFAULT_SCORING_CONFIG, version: DEFAULT_SCORING_CONFIG.version + 1 });
 }
 
 /** Сохраняет сырой ответ источника для отладки маппинга. */

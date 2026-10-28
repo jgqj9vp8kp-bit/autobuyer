@@ -11,6 +11,7 @@ import { loadConfig } from "@/lib/configStore";
 import { defaultRange, evaluateCached } from "@/lib/evaluate";
 import { addDaysIso, fmtMoney, fmtNum, fmtPct, fmtStatus } from "@/lib/format";
 import { scoreHistoryCached } from "@/lib/history";
+import { DEFAULT_PRODUCT, PRODUCT_LABEL, PRODUCT_SOURCE_LABEL } from "@/lib/products";
 import { VERDICT_META } from "@/lib/verdict";
 import clsx from "clsx";
 import { Suspense } from "react";
@@ -53,7 +54,7 @@ export default async function CampaignPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ from?: string; to?: string; r?: string; hist?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; r?: string; hist?: string; product?: string }>;
 }) {
   const { id: rawId } = await params;
   // id кампании может содержать пробелы (TikTok: "BR_hand_1-5 PR") — в params он приходит закодированным
@@ -82,9 +83,10 @@ export default async function CampaignPage({
     }
   }
   if (!row) return <NotFoundInRange id={id} from={requestedFrom} to={to} />;
-  const { ad, funnel, score } = row;
+  const { ad, funnel, score, product, productSource } = row;
   const meta = VERDICT_META[score.verdict];
-  const [history, cfg] = await Promise.all([scoreHistoryCached(ad, to, histDays, 7), loadConfig()]);
+  const [history, cfg] = await Promise.all([scoreHistoryCached(ad, to, histDays, 7, product), loadConfig(product ?? DEFAULT_PRODUCT)]);
+  const backQuery = `from=${from}&to=${to}${sp.product ? `&product=${sp.product}` : ""}`;
   const scored = history.points.filter((p) => p.verdict !== "NO_DATA");
   const first = scored[0];
   const last = scored[scored.length - 1];
@@ -102,7 +104,7 @@ export default async function CampaignPage({
   return (
     <div className="fade-up space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Link href={`/?from=${from}&to=${to}`} className="inline-flex items-center gap-1 text-sm text-muted hover:text-ink">
+        <Link href={`/?${backQuery}`} className="inline-flex items-center gap-1 text-sm text-muted hover:text-ink">
           <ArrowLeft size={14} /> Все кампании
         </Link>
         <Suspense>
@@ -121,7 +123,10 @@ export default async function CampaignPage({
           </div>
           <h1 className="mt-2 text-2xl font-bold leading-tight">{ad.campaignName}</h1>
           <div className="mt-1 text-xs text-muted">
-            {ad.campaignId} · {ad.buyer ?? "—"} · {ad.geo ?? "—"} · {ad.accountName ?? ad.accountId ?? ""} · {fmtStatus(ad)}
+            <span className="font-semibold text-ink" title={`Продукт ${PRODUCT_SOURCE_LABEL[productSource]}${product ? "" : `; правила ${PRODUCT_LABEL[DEFAULT_PRODUCT]}`}`}>
+              {product ? PRODUCT_LABEL[product] : "продукт не определён"}
+            </span>{" "}
+            · {ad.campaignId} · {ad.buyer ?? "—"} · {ad.geo ?? "—"} · {ad.accountName ?? ad.accountId ?? ""} · {fmtStatus(ad)}
             {funnel.funnelAlias && (
               <>
                 {" "}

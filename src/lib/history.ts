@@ -5,7 +5,8 @@ import { scoreCampaign } from "@/lib/scoring/engine";
 import { fetchCampaignStats } from "@/lib/sources/capsuled";
 import { generateDemo } from "@/lib/sources/demo";
 import { fetchFunnelHistory, type FunnelWindow } from "@/lib/sources/posthog";
-import type { AdCampaignStats, DailyAdStats, Verdict } from "@/lib/types";
+import { DEFAULT_PRODUCT } from "@/lib/products";
+import type { AdCampaignStats, DailyAdStats, ProductKey, Verdict } from "@/lib/types";
 
 /**
  * История скора кампании: для каждого дня считаем скор по данным за скользящее окно
@@ -71,8 +72,8 @@ function adWindow(base: AdCampaignStats, daily: DailyAdStats[], from: string, to
   };
 }
 
-export async function scoreHistory(ad: AdCampaignStats, dateTo: string, days = 14, windowDays = 7): Promise<ScoreHistory> {
-  const cfg = await loadConfig();
+export async function scoreHistory(ad: AdCampaignStats, dateTo: string, days = 14, windowDays = 7, product: ProductKey | null = null): Promise<ScoreHistory> {
+  const cfg = await loadConfig(product ?? DEFAULT_PRODUCT);
   const dateFrom = addDays(dateTo, -(days - 1));
   const rawFrom = addDays(dateFrom, -(windowDays - 1));
   const src = sourcesConfig();
@@ -142,11 +143,11 @@ export async function scoreHistory(ad: AdCampaignStats, dateTo: string, days = 1
 }
 
 const cache = new Map<string, { at: number; value: ScoreHistory }>();
-export async function scoreHistoryCached(ad: AdCampaignStats, dateTo: string, days = 14, windowDays = 7): Promise<ScoreHistory> {
-  const key = `${ad.campaignId}:${dateTo}:${days}:${windowDays}:${sourcesConfig().live ? "live" : "demo"}`;
+export async function scoreHistoryCached(ad: AdCampaignStats, dateTo: string, days = 14, windowDays = 7, product: ProductKey | null = null): Promise<ScoreHistory> {
+  const key = `${ad.campaignId}:${dateTo}:${days}:${windowDays}:${product ?? "-"}:${sourcesConfig().live ? "live" : "demo"}`;
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < 120_000) return hit.value;
-  const value = await scoreHistory(ad, dateTo, days, windowDays);
+  const value = await scoreHistory(ad, dateTo, days, windowDays, product);
   cache.set(key, { at: Date.now(), value });
   return value;
 }

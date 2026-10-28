@@ -1,6 +1,7 @@
 import clsx from "clsx";
 import { Card, Kicker } from "@/components/ui";
 import { defaultRange, evaluateCached, isLiveMode } from "@/lib/evaluate";
+import { DEFAULT_PRODUCT, PRODUCTS } from "@/lib/products";
 import { DEFAULT_CAMPAIGN_EXPR } from "@/lib/sources/posthog";
 
 export const dynamic = "force-dynamic";
@@ -81,6 +82,35 @@ export default async function SettingsPage() {
           </p>
         </Card>
       </div>
+
+      <Card>
+        <Kicker>Продукты</Kicker>
+        <h2 className="mb-2 text-lg font-bold">Как кампания относится к продукту</h2>
+        <p className="text-xs leading-relaxed text-muted">
+          Сначала по домену воронки в PostHog (<code>$host</code> событий кампании), затем по URL воронки в названии кампании, затем по ключевым словам в названии кампании и рекламного аккаунта. Если ничего не подошло,
+          кампания помечается «продукт не определён» и считается по правилам {PRODUCTS.find((p) => p.key === DEFAULT_PRODUCT)?.label}. Правила скоринга задаются для каждого продукта отдельно в разделе «Правила».
+        </p>
+        <table className="table mt-3 w-full text-xs">
+          <thead>
+            <tr>
+              <th>Продукт</th>
+              <th>Домены воронок</th>
+              <th>Ключевые слова в названии</th>
+              <th>Что это</th>
+            </tr>
+          </thead>
+          <tbody>
+            {PRODUCTS.map((p) => (
+              <tr key={p.key}>
+                <td className="font-semibold">{p.label}</td>
+                <td className="font-mono">{p.hosts.join(", ")}</td>
+                <td className="font-mono text-muted">{p.namePatterns.map((re) => re.source).join(" ")}</td>
+                <td className="text-muted">{p.hint}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
     </div>
   );
 }

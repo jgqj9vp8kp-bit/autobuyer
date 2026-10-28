@@ -68,6 +68,7 @@ export function buildFunnelQuery(funnel: FunnelStepDef[], dateFrom: string, date
   return `
 SELECT toString(${campaignExpr}) AS campaign,
   anyIf(toString(properties.funnel_alias), toString(properties.funnel_alias) != '') AS funnel_alias,
+  anyIf(toString(properties.$host), toString(properties.$host) != '') AS host,
   ${stepExprs.join(",\n  ")}
 FROM events
 WHERE event IN (${eventList(funnel)})
@@ -149,7 +150,8 @@ export async function fetchFunnelCounts(opts: PostHogOptions, funnel: FunnelStep
     const steps: Record<string, number> = {};
     for (const s of funnel) steps[s.key] = Number(rec[ident(s.key)] ?? 0);
     const alias = rec.funnel_alias ? String(rec.funnel_alias) : undefined;
-    out.push({ campaignId, steps, funnelAlias: alias });
+    const host = rec.host ? String(rec.host) : undefined;
+    out.push({ campaignId, steps, funnelAlias: alias, host });
   }
   return out;
 }

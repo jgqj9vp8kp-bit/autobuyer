@@ -2,14 +2,21 @@
 
 import { useState } from "react";
 import clsx from "clsx";
-import { Plus, RotateCcw, Save, Trash2 } from "lucide-react";
-import type { FunnelStepDef, ScoringConfig, ScoringCriterion } from "@/lib/types";
+import { Copy, Plus, RotateCcw, Save, Trash2 } from "lucide-react";
+import type { FunnelStepDef, ProductKey, ScoringConfig, ScoringCriterion } from "@/lib/types";
+import { PRODUCTS, PRODUCT_LABEL } from "@/lib/products";
 import { GROUP_LABEL } from "@/lib/verdict";
 
-export function RulesEditor({ initial }: { initial: ScoringConfig }) {
-  const [cfg, setCfg] = useState<ScoringConfig>(initial);
+type Updater = ScoringConfig | ((c: ScoringConfig) => ScoringConfig);
+
+/** Редактор правил: у каждого продукта свой конфиг, переключение вкладками сверху. */
+export function RulesEditor({ initial, initialProduct }: { initial: Record<ProductKey, ScoringConfig>; initialProduct: ProductKey }) {
+  const [product, setProduct] = useState<ProductKey>(initialProduct);
+  const [all, setAll] = useState<Record<ProductKey, ScoringConfig>>(initial);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const cfg = all[product];
+  const setCfg = (u: Updater) => setAll((a) => ({ ...a, [product]: typeof u === "function" ? u(a[product]) : u }));
 
   const total = cfg.criteria.filter((c) => c.enabled).reduce((s, c) => s + c.maxPoints, 0);
 
@@ -17,11 +24,11 @@ export function RulesEditor({ initial }: { initial: ScoringConfig }) {
     setSaving(true);
     setMsg(null);
     try {
-      const res = await fetch("/api/config", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cfg) });
+      const res = await fetch(`/api/config?product=${product}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cfg) });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? "Ошибка сохранения");
-      setCfg(body);
-      setMsg("Сохранено. Скор пересчитается при следующем обновлении дашборда.");
+      setAll((a) => ({ ...a, [product]: body }));
+      setMsg(`Сохранено для ${PRODUCT_LABEL[product]}. Скор пересчитается при следующем обновлении дашборда.`);
     } catch (e) {
       setMsg((e as Error).message);
     } finally {
@@ -30,10 +37,18 @@ export function RulesEditor({ initial }: { initial: ScoringConfig }) {
   };
 
   const reset = async () => {
-    if (!confirm("Сбросить правила к значениям по умолчанию?")) return;
-    const res = await fetch("/api/config", { method: "DELETE" });
-    setCfg(await res.json());
-    setMsg("Сброшено к значениям по умолчанию.");
+    if (!confirm(`Сбросить правила ${PRODUCT_LABEL[product]} к значениям по умолчанию?`)) return;
+    const res = await fetch(`/api/config?product=${product}`, { method: "DELETE" });
+    const body = await res.json();
+    setAll((a) => ({ ...a, [product]: body }));
+    setMsg(`Правила ${PRODUCT_LABEL[product]} сброшены к значениям по умолчанию.`);
+  };
+
+  const copyFrom = (src: ProductKey) => {
+    if (src === product) return;
+    if (!confirm(`Заменить правила ${PRODUCT_LABEL[product]} копией правил ${PRODUCT_LABEL[src]}? Изменение нужно будет сохранить.`)) return;
+    setAll((a) => ({ ...a, [product]: { ...a[src], version: a[product].version, updatedAt: a[product].updatedAt } }));
+    setMsg(`Скопированы правила ${PRODUCT_LABEL[src]} → ${PRODUCT_LABEL[product]}. Нажмите «Сохранить».`);
   };
 
   const updCriterion = (i: number, patch: Partial<ScoringCriterion>) =>
@@ -48,6 +63,31 @@ export function RulesEditor({ initial }: { initial: ScoringConfig }) {
 
   return (
     <div className="space-y-6">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-1 rounded-full border border-line bg-white p-1">
+          {PRODUCTS.map((p) => (
+            <button
+              key={p.key}
+              onClick={() => setProduct(p.key)}
+              className={clsx("rounded-full px-4 py-1.5 text-sm font-semibold transition", product === p.key ? "bg-ink text-white" : "text-muted hover:bg-subtle hover:text-ink")}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+        <div className="text-xs text-muted">
+          Правила для <b className="text-ink">{PRODUCT_LABEL[product]}</b> · версия {cfg.version} · обновлено {new Date(cfg.updatedAt).toLocaleString("ru-RU")}
+        </div>
+        <div className="ml-auto flex items-center gap-2 text-xs text-muted">
+          <Copy size={14} /> скопировать из
+          {PRODUCTS.filter((p) => p.key !== product).map((p) => (
+            <button key={p.key} className="btn btn-ghost !px-3 !py-1" onClick={() => copyFrom(p.key)}>
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="card flex flex-wrap items-center gap-4 p-4">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
           <label className="text-xs">

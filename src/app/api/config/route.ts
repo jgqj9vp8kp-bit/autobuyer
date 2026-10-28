@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { loadConfig, resetConfig, saveConfig } from "@/lib/configStore";
+import { loadAllConfigs, loadConfig, resetConfig, saveConfig } from "@/lib/configStore";
 import { invalidateCache } from "@/lib/evaluate";
+import { DEFAULT_PRODUCT, isProductKey, PRODUCT_KEYS } from "@/lib/products";
 
 const Band = z.object({ value: z.number(), points: z.number().min(0) });
 const Criterion = z.object({
@@ -36,20 +37,35 @@ const Config = z.object({
   verdicts: z.object({ scale: z.number(), keep: z.number(), optimize: z.number() }),
 });
 
-export async function GET() {
-  return NextResponse.json(await loadConfig());
+/** ?product=azora|foxiq|robella (по умолчанию DEFAULT_PRODUCT) */
+const productOf = (req: NextRequest) => {
+  const p = req.nextUrl.searchParams.get("product") ?? DEFAULT_PRODUCT;
+  return isProductKey(p) ? p : null;
+};
+const badProduct = () => NextResponse.json({ error: `product должен быть одним из: ${PRODUCT_KEYS.join(", ")}` }, { status: 400 });
+
+/** GET /api/config?product=… — конфиг продукта; GET /api/config?all=1 — все продукты. */
+export async function GET(req: NextRequest) {
+  if (req.nextUrl.searchParams.get("all")) return NextResponse.json(await loadAllConfigs());
+  const product = productOf(req);
+  if (!product) return badProduct();
+  return NextResponse.json(await loadConfig(product));
 }
 
 export async function PUT(req: NextRequest) {
+  const product = productOf(req);
+  if (!product) return badProduct();
   const parsed = Config.safeParse(await req.json());
   if (!parsed.success) return NextResponse.json({ error: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") }, { status: 400 });
-  const saved = await saveConfig({ ...parsed.data, version: parsed.data.version + 1 } as Parameters<typeof saveConfig>[0]);
+  const saved = await saveConfig(product, { ...parsed.data, version: parsed.data.version + 1 } as Parameters<typeof saveConfig>[1]);
   invalidateCache();
   return NextResponse.json(saved);
 }
 
-export async function DELETE() {
-  const cfg = await resetConfig();
+export async function DELETE(req: NextRequest) {
+  const product = productOf(req);
+  if (!product) return badProduct();
+  const cfg = await resetConfig(product);
   invalidateCache();
   return NextResponse.json(cfg);
 }

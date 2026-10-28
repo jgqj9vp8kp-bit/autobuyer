@@ -14,5 +14,5 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   const data = await evaluateCached(sp.get("from") ?? def.dateFrom, to);
   const row = data.campaigns.find((c) => c.ad.campaignId === id);
   if (!row) return NextResponse.json({ error: "not_found" }, { status: 404 });
-  return NextResponse.json(await scoreHistoryCached(row.ad, to, days, windowDays));
+  return NextResponse.json(await scoreHistoryCached(row.ad, to, days, windowDays, row.product));
 }
