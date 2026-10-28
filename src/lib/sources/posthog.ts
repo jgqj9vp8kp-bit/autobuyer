@@ -14,7 +14,7 @@ export interface PostHogOptions {
   host: string;
   projectId: string;
   apiKey: string;
-  /** HogQL-выражение, по которому группируем, по умолчанию properties.utm_campaign */
+  /** HogQL-выражение, по которому группируем; по умолчанию DEFAULT_CAMPAIGN_EXPR */
   campaignExpr?: string;
 }
 
@@ -30,6 +30,12 @@ export class PostHogError extends Error {
 
 const escapeStr = (s: string) => s.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 const ident = (s: string) => s.replace(/[^a-zA-Z0-9_]/g, "_");
+
+/**
+ * Привязка события к кампании. События воронки несут utm_campaign сами, но события покупки
+ * апсейлов (upsell_purchase_success) приходят уже без utm — для них берём $initial_utm_campaign персоны.
+ */
+export const DEFAULT_CAMPAIGN_EXPR = "coalesce(nullIf(toString(properties.utm_campaign), ''), nullIf(toString(person.properties.$initial_utm_campaign), ''), '')";
 
 /**
  * Условие по свойству шага: без учёта регистра, несколько значений через `|`,
@@ -69,7 +75,7 @@ LIMIT 5000`.trim();
 }
 
 export async function fetchFunnelCounts(opts: PostHogOptions, funnel: FunnelStepDef[], dateFrom: string, dateTo: string): Promise<FunnelCounts[]> {
-  const campaignExpr = opts.campaignExpr ?? "properties.utm_campaign";
+  const campaignExpr = opts.campaignExpr ?? DEFAULT_CAMPAIGN_EXPR;
   const query = buildFunnelQuery(funnel, dateFrom, dateTo, campaignExpr);
   const url = `${opts.host.replace(/\/$/, "")}/api/projects/${opts.projectId}/query/`;
   const res = await fetch(url, {

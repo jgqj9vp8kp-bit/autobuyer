@@ -14,25 +14,33 @@ export function computeFunnelMetrics(counts: FunnelCounts | undefined, funnel: F
   const second = funnel[1];
   const visitors = first ? get(first.key) : 0;
 
+  // Шаг считается отсутствующим в этой воронке, если на нём 0, а на каком-то из следующих шагов > 0
+  // (например, у части воронок нет экрана email). Такие шаги не штрафуются — метрика null.
+  const absent = new Set<string>();
+  funnel.forEach((s, i) => {
+    if (get(s.key) === 0 && funnel.slice(i + 1).some((n) => get(n.key) > 0)) absent.add(s.key);
+  });
+
   const steps: FunnelMetrics["steps"] = [];
   let prev: number | null = null;
   for (const s of funnel) {
     const count = get(s.key);
+    const isAbsent = absent.has(s.key);
     steps.push({
       key: s.key,
       label: s.label,
       count,
-      fromPrev: prev === null ? null : ratio(count, prev),
-      fromStart: ratio(count, visitors),
+      fromPrev: isAbsent || prev === null ? null : ratio(count, prev),
+      fromStart: isAbsent ? null : ratio(count, visitors),
       milestone: s.milestone,
       optional: s.optional,
     });
-    prev = count;
+    if (!isAbsent) prev = count;
   }
 
   const checkpointReach: Record<string, number | null> = {};
   for (const s of funnel) {
-    if (s.milestone) checkpointReach[s.key] = ratio(get(s.key), visitors);
+    if (s.milestone) checkpointReach[s.key] = absent.has(s.key) ? null : ratio(get(s.key), visitors);
   }
 
   const paywall = get("paywall");
@@ -46,8 +54,8 @@ export function computeFunnelMetrics(counts: FunnelCounts | undefined, funnel: F
     visitors,
     firstScreenCr: second ? ratio(get(second.key), visitors) : null,
     checkpointReach,
-    paywallReach: ratio(paywall, visitors),
-    paywallCr: ratio(trial, paywall),
+    paywallReach: absent.has("paywall") ? null : ratio(paywall, visitors),
+    paywallCr: absent.has("paywall") ? null : ratio(trial, paywall),
     trialCr: ratio(trial, visitors),
     upsell1Cr: ratio(upsell1, trial),
     upsell2Cr: hasUpsell2 ? ratio(upsell2, upsell1) : null,

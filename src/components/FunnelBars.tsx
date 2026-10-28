@@ -9,12 +9,14 @@ export function FunnelBars({ funnel }: { funnel: FunnelMetrics }) {
       {funnel.steps.map((s, i) => {
         const width = Math.max(2, (s.count / max) * 100);
         const weak = s.fromPrev !== null && s.fromPrev < 0.4 && i > 0;
+        const absent = s.count === 0 && s.fromStart === null;
         return (
           <div key={s.key} className="grid grid-cols-[150px_1fr_80px_80px] items-center gap-3 text-xs">
             <div className="flex items-center gap-1.5 truncate">
               {s.milestone && <span className="h-1.5 w-1.5 rounded-full bg-accent-deep" title="Ключевая точка" />}
               <span className={clsx("truncate", s.milestone ? "font-semibold" : "text-muted")}>{s.label}</span>
               {s.optional && <span className="text-[10px] text-muted">(опц.)</span>}
+              {absent && <span className="text-[10px] text-muted">(нет в воронке)</span>}
             </div>
             <div className="flex h-6 items-center gap-2 rounded-md bg-subtle">
               <div

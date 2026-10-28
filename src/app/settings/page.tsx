@@ -1,6 +1,7 @@
 import clsx from "clsx";
 import { Card, Kicker } from "@/components/ui";
 import { defaultRange, evaluateCached, isLiveMode } from "@/lib/evaluate";
+import { DEFAULT_CAMPAIGN_EXPR } from "@/lib/sources/posthog";
 
 export const dynamic = "force-dynamic";
 
@@ -70,7 +71,9 @@ export default async function SettingsPage() {
             </div>
             <div className="flex justify-between gap-4">
               <dt className="text-muted">POSTHOG_CAMPAIGN_EXPR</dt>
-              <dd className="truncate font-mono text-xs">{env.POSTHOG_CAMPAIGN_EXPR || "coalesce(properties.utm_campaign, person.properties.$initial_utm_campaign, '')"}</dd>
+              <dd className="truncate font-mono text-xs" title={env.POSTHOG_CAMPAIGN_EXPR || DEFAULT_CAMPAIGN_EXPR}>
+                {env.POSTHOG_CAMPAIGN_EXPR || DEFAULT_CAMPAIGN_EXPR}
+              </dd>
             </div>
           </dl>
           <p className="mt-3 text-xs leading-relaxed text-muted">
