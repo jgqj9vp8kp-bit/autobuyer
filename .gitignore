@@ -6,3 +6,5 @@ out
 data/cache
 *.log
 .DS_Store
+tsconfig.tsbuildinfo
+next-env.d.ts
