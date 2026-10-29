@@ -177,3 +177,22 @@ export async function fetchFunnelHistory(
     return { day: String(rec.day).slice(0, 10), steps };
   });
 }
+
+/** Домен воронки ($host) по кампаниям за период — для определения продукта в бенчмарках сегментов. */
+export async function fetchCampaignHosts(opts: PostHogOptions, dateFrom: string, dateTo: string): Promise<Map<string, string>> {
+  const campaignExpr = opts.campaignExpr ?? DEFAULT_CAMPAIGN_EXPR;
+  const query = `
+SELECT toString(${campaignExpr}) AS campaign,
+  anyIf(toString(properties.$host), toString(properties.$host) != '') AS host
+FROM events
+WHERE event = 'funnel_screen_open'
+  AND timestamp >= toDateTime('${dateFrom} 00:00:00')
+  AND timestamp <= toDateTime('${dateTo} 23:59:59')
+  AND campaign != ''
+GROUP BY campaign
+LIMIT 10000`.trim();
+  const { columns, results } = await runQuery(opts, query);
+  const out = new Map<string, string>();
+  for (const rec of rowsToRecords(columns, results)) if (rec.campaign && rec.host) out.set(String(rec.campaign), String(rec.host));
+  return out;
+}

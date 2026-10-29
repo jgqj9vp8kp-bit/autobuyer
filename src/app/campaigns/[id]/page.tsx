@@ -9,7 +9,8 @@ import { ScoreHistoryChart } from "@/components/ScoreHistoryChart";
 import { Card, Kicker, VerdictPill } from "@/components/ui";
 import { loadConfig } from "@/lib/configStore";
 import { defaultRange, evaluateCached } from "@/lib/evaluate";
-import { addDaysIso, fmtMoney, fmtNum, fmtPct, fmtStatus } from "@/lib/format";
+import { bucketCpa } from "@/lib/benchmarks";
+import { addDaysIso, fmtDate, fmtMoney, fmtNum, fmtPct, fmtStatus } from "@/lib/format";
 import { scoreHistoryCached } from "@/lib/history";
 import { DEFAULT_PRODUCT, PRODUCT_LABEL, PRODUCT_SOURCE_LABEL } from "@/lib/products";
 import { VERDICT_META } from "@/lib/verdict";
@@ -84,6 +85,8 @@ export default async function CampaignPage({
   }
   if (!row) return <NotFoundInRange id={id} from={requestedFrom} to={to} />;
   const { ad, funnel, score, product, productSource } = row;
+  const segment = row.segment ?? null;
+  const es = { maxAgeDays: 3 };
   const meta = VERDICT_META[score.verdict];
   const [history, cfg] = await Promise.all([scoreHistoryCached(ad, to, histDays, 7, product), loadConfig(product ?? DEFAULT_PRODUCT)]);
   const backQuery = `from=${from}&to=${to}${sp.product ? `&product=${sp.product}` : ""}`;
@@ -150,6 +153,51 @@ export default async function CampaignPage({
           {stat("ROAS", ad.roas ? `${ad.roas.toFixed(2)}x` : "—", `выручка ${fmtMoney(ad.revenue)}`)}
         </div>
       </Card>
+
+      {segment && (
+        <Card>
+          <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <Kicker>
+                Сегмент · {segment.benchmarkLevel === "segment" ? "продукт × гео по таргетингу" : segment.benchmarkLevel === "product" ? "по продукту (в этом гео мало данных)" : segment.benchmarkLevel === "all" ? "все кампании (мало данных)" : "бенчмарка нет"} · 60 дн.
+              </Kicker>
+              <h2 className="text-lg font-bold">{segment.label}</h2>
+              <p className="mt-1 text-xs text-muted">
+                {segment.ageDays === null
+                  ? "Дата запуска неизвестна: кампании нет в дневной статистике за 60 дней."
+                  : segment.ageDays >= 999
+                    ? "Кампания стартовала раньше окна наблюдения, считается зрелой."
+                    : `Кампания на дне ${segment.ageDays} (первая открутка ${segment.firstDeliveryDate ? fmtDate(segment.firstDeliveryDate) : "—"}).`}
+                {segment.earlyNormCpa && segment.earlyNormCpa > (cfg.targetCpa ?? 0)
+                  ? ` CPA оценивается относительно нормы дня ${segment.ageDays} в сегменте (${fmtMoney(segment.earlyNormCpa, 2)}), «остановить» не выносится.`
+                  : segment.earlyStage
+                    ? " Сегмент здоровый: на ранней стадии «остановить» не выносится."
+                    : segment.ageDays !== null && segment.ageDays <= (cfg.earlyStage?.maxAgeDays ?? es.maxAgeDays) && segment.benchmark
+                      ? " Сегмент исторически дорогой, поблажки для старта нет."
+                      : ""}
+              </p>
+            </div>
+            <Link href={`/benchmarks${product ? `?product=${product}` : ""}`} className="btn btn-ghost">
+              Все сегменты
+            </Link>
+          </div>
+          {segment.benchmark ? (
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+              {stat("Зрелый CPA (день 4+)", fmtMoney(bucketCpa(segment.benchmark.days.mature), 2), `${fmtNum(segment.benchmark.days.mature.trials)} триалов · цель ${fmtMoney(cfg.targetCpa)}`)}
+              {stat("Норма дня 1", fmtMoney(bucketCpa(segment.benchmark.days.d1), 2), `${segment.benchmark.days.d1.campaigns} кампаний`)}
+              {stat("Норма дня 2", fmtMoney(bucketCpa(segment.benchmark.days.d2), 2), `${segment.benchmark.days.d2.campaigns} кампаний`)}
+              {stat("Норма дня 3", fmtMoney(bucketCpa(segment.benchmark.days.d3), 2), `${segment.benchmark.days.d3.campaigns} кампаний`)}
+              {stat(
+                "Дорогой старт",
+                segment.benchmark.recovery.recovered + segment.benchmark.recovery.stayedBad ? `${segment.benchmark.recovery.recovered} из ${segment.benchmark.recovery.recovered + segment.benchmark.recovery.stayedBad}` : "—",
+                "вышли на норму к дню 3+",
+              )}
+            </div>
+          ) : (
+            <div className="text-sm text-muted">Для этого сегмента пока слишком мало данных за 60 дней, нормы не считаются.</div>
+          )}
+        </Card>
+      )}
 
       <Card>
         <div className="mb-3 flex flex-wrap items-start justify-between gap-3">

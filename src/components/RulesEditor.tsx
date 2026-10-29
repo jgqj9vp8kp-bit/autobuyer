@@ -60,6 +60,7 @@ export function RulesEditor({ initial, initialProduct }: { initial: Record<Produ
   const updStep = (i: number, patch: Partial<FunnelStepDef>) => setCfg((c) => ({ ...c, funnel: c.funnel.map((x, j) => (j === i ? { ...x, ...patch } : x)) }));
 
   const num = (v: string) => (v === "" ? 0 : Number(v));
+  const es = cfg.earlyStage ?? { maxAgeDays: 3, healthySegmentRatio: 1.2, minSegmentTrials: 5 };
 
   return (
     <div className="space-y-6">
@@ -115,6 +116,24 @@ export function RulesEditor({ initial, initialProduct }: { initial: Record<Produ
           <button className="btn btn-dark" onClick={save} disabled={saving}>
             <Save size={14} /> {saving ? "Сохраняю…" : "Сохранить"}
           </button>
+        </div>
+        <div className="grid w-full grid-cols-2 gap-3 border-t border-line pt-4 sm:grid-cols-4">
+          <div className="col-span-2 self-end text-[11px] leading-snug text-muted sm:col-span-1">
+            <b className="text-ink">Ранняя стадия.</b> Пока кампания моложе N дней, а зрелый CPA её сегмента (продукт × гео за 60 дн.) не выше цели × K, CPA сравнивается с нормой этого дня в сегменте и «остановить» не
+            выносится.
+          </div>
+          <label className="text-xs">
+            <div className="kicker mb-1">Ранняя стадия, дней</div>
+            <input className="input w-full" type="number" value={es.maxAgeDays} onChange={(e) => setCfg({ ...cfg, earlyStage: { ...es, maxAgeDays: num(e.target.value) } })} />
+          </label>
+          <label className="text-xs">
+            <div className="kicker mb-1">Здоровый сегмент, × цели</div>
+            <input className="input w-full" type="number" step="0.1" value={es.healthySegmentRatio} onChange={(e) => setCfg({ ...cfg, earlyStage: { ...es, healthySegmentRatio: num(e.target.value) } })} />
+          </label>
+          <label className="text-xs">
+            <div className="kicker mb-1">Мин. триалов в сегменте</div>
+            <input className="input w-full" type="number" value={es.minSegmentTrials} onChange={(e) => setCfg({ ...cfg, earlyStage: { ...es, minSegmentTrials: num(e.target.value) } })} />
+          </label>
         </div>
         {msg && <div className="w-full text-xs text-muted">{msg}</div>}
       </div>

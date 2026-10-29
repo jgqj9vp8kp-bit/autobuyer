@@ -32,6 +32,7 @@ const Config = z.object({
   updatedAt: z.string(),
   targetCpa: z.number().min(0),
   minVisitors: z.number().min(0),
+  earlyStage: z.object({ maxAgeDays: z.number().min(0), healthySegmentRatio: z.number().min(0), minSegmentTrials: z.number().min(0) }).optional(),
   funnel: z.array(Step).min(1),
   criteria: z.array(Criterion),
   verdicts: z.object({ scale: z.number(), keep: z.number(), optimize: z.number() }),

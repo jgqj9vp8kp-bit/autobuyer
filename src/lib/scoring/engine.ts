@@ -2,12 +2,17 @@ import type {
   AdCampaignStats,
   CampaignScore,
   CriterionResult,
+  DayBucket,
   FunnelMetrics,
   MetricKey,
   ScoringConfig,
+  ScoringContext,
   ScoringCriterion,
   Verdict,
 } from "@/lib/types";
+import { DEFAULT_EARLY_STAGE } from "@/lib/scoring/defaultConfig";
+
+const bucketCpa = (b: DayBucket): number | null => (b.trials > 0 ? b.spend / b.trials : null);
 
 /** Линейная интерполяция баллов по порогам. */
 export function pointsForValue(bands: ScoringCriterion["bands"], value: number): number {
@@ -44,7 +49,7 @@ function cpaTrend(ad: AdCampaignStats): number | null {
 }
 
 /** Достаёт значение метрики из нормализованных данных. */
-export function resolveMetric(metric: MetricKey, ad: AdCampaignStats, funnel: FunnelMetrics, cfg: ScoringConfig): number | null {
+export function resolveMetric(metric: MetricKey, ad: AdCampaignStats, funnel: FunnelMetrics, cfg: ScoringConfig, ctx?: ScoringContext): number | null {
   if (metric.startsWith("checkpointReach:")) {
     const key = metric.split(":")[1];
     return funnel.checkpointReach[key] ?? null;
@@ -64,8 +69,12 @@ export function resolveMetric(metric: MetricKey, ad: AdCampaignStats, funnel: Fu
       return funnel.hasUpsell2 ? funnel.upsell2Cr : null;
     case "ctr":
       return ad.impressions > 0 ? ad.ctr : null;
-    case "cpa":
-      return ad.cpa !== null && cfg.targetCpa > 0 ? ad.cpa / cfg.targetCpa : null;
+    case "cpa": {
+      if (ad.cpa === null || cfg.targetCpa <= 0) return null;
+      // Молодая кампания в здоровом сегменте: сравниваем с нормой её дня жизни, если та выше цели
+      const norm = ctx?.segment?.earlyNormCpa ?? 0;
+      return ad.cpa / Math.max(cfg.targetCpa, norm);
+    }
     case "cpm":
       return ad.impressions > 0 ? ad.cpm : null;
     case "frequency":
@@ -91,11 +100,11 @@ function statusFor(c: ScoringCriterion, value: number, points: number): Criterio
 
 const pct = (v: number) => `${(v * 100).toFixed(1)}%`;
 
-function noteFor(c: ScoringCriterion, value: number, status: CriterionResult["status"]): string {
+function noteFor(c: ScoringCriterion, value: number, status: CriterionResult["status"], basis?: string): string {
   const m = c.metric;
   const fmt =
     m === "cpa"
-      ? `${(value * 100).toFixed(0)}% от целевого CPA`
+      ? `${(value * 100).toFixed(0)}% от ${basis ?? "целевого CPA"}`
       : m === "ctr"
         ? `${value.toFixed(2)}%`
         : m === "frequency"
@@ -206,15 +215,17 @@ function insightsFor(results: CriterionResult[], ad: AdCampaignStats, funnel: Fu
   return out;
 }
 
-/** Главная функция: считает скор кампании по конфигу. */
-export function scoreCampaign(ad: AdCampaignStats, funnel: FunnelMetrics, cfg: ScoringConfig): CampaignScore {
+/** Главная функция: считает скор кампании по конфигу. `ctx.segment` — бенчмарк сегмента (правило ранней стадии). */
+export function scoreCampaign(ad: AdCampaignStats, funnel: FunnelMetrics, cfg: ScoringConfig, ctx?: ScoringContext): CampaignScore {
   const results: CriterionResult[] = [];
   let earned = 0;
   let possible = 0;
+  const seg = ctx?.segment ?? null;
+  const es = cfg.earlyStage ?? DEFAULT_EARLY_STAGE;
 
   for (const c of cfg.criteria) {
     if (!c.enabled) continue;
-    const value = resolveMetric(c.metric, ad, funnel, cfg);
+    const value = resolveMetric(c.metric, ad, funnel, cfg, ctx);
     const sampleOk = !c.minSample || funnel.visitors >= c.minSample || c.metric === "dataConfidence";
 
     if (value === null || !sampleOk) {
@@ -236,7 +247,8 @@ export function scoreCampaign(ad: AdCampaignStats, funnel: FunnelMetrics, cfg: S
     const status = statusFor(c, value, points);
     earned += points;
     possible += c.maxPoints;
-    results.push({ key: c.key, label: c.label, group: c.group, metric: c.metric, value, points, maxPoints: c.maxPoints, status, note: noteFor(c, value, status) });
+    const basis = c.metric === "cpa" && seg?.earlyNormCpa && seg.earlyNormCpa > cfg.targetCpa ? `нормы дня ${seg.ageDays} в сегменте ($${seg.earlyNormCpa.toFixed(0)})` : undefined;
+    results.push({ key: c.key, label: c.label, group: c.group, metric: c.metric, value, points, maxPoints: c.maxPoints, status, note: noteFor(c, value, status, basis) });
   }
 
   if (possible === 0) {
@@ -264,6 +276,26 @@ export function scoreCampaign(ad: AdCampaignStats, funnel: FunnelMetrics, cfg: S
   } else if (verdict === "SCALE" && funnel.visitors < cfg.minVisitors) {
     verdict = "KEEP";
     insights.unshift(`Выборка мала (${funnel.visitors} из ${cfg.minVisitors} визитов) — вердикт «масштабировать» придержан до набора данных.`);
+  }
+
+  // Сегмент и ранняя стадия: молодую кампанию в исторически здоровом сегменте не останавливаем
+  if (seg?.benchmark) {
+    const b = seg.benchmark;
+    const d = (k: keyof typeof b.days) => {
+      const v = bucketCpa(b.days[k]);
+      return v === null ? "—" : `$${v.toFixed(0)}`;
+    };
+    insights.push(
+      `Сегмент ${seg.label}${seg.benchmarkLevel === "product" ? " (бенчмарк по продукту: в этом гео мало данных)" : seg.benchmarkLevel === "all" ? " (бенчмарк по всем кампаниям)" : ""}: зрелый CPA ${d("mature")}, норма дня 1/2/3 — ${d("d1")}/${d("d2")}/${d("d3")} по ${b.campaigns} кампаниям за 60 дн.`,
+    );
+    if (seg.ageDays !== null && seg.ageDays <= es.maxAgeDays) {
+      if (seg.earlyNormCpa && seg.earlyNormCpa > cfg.targetCpa) insights.push(`Кампания на дне ${seg.ageDays}: CPA сравнивается с нормой этого дня в сегменте ($${seg.earlyNormCpa.toFixed(0)}), а не с целью $${cfg.targetCpa}.`);
+      else if (!seg.earlyStage) insights.push(`Кампания на дне ${seg.ageDays}, но сегмент исторически дорогой (зрелый CPA выше цели × ${es.healthySegmentRatio}) — поблажки для старта нет.`);
+    }
+    if (seg.earlyStage && verdict === "PAUSE") {
+      verdict = "KEEP";
+      insights.unshift(`Ранняя стадия (день ${seg.ageDays}) в здоровом сегменте ${seg.label}: не останавливаем, пересмотр после дня ${es.maxAgeDays}.`);
+    }
   }
   return {
     campaignId: ad.campaignId,

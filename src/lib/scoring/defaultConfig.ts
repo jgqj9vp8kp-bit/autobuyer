@@ -5,11 +5,15 @@ import type { ScoringConfig } from "@/lib/types";
  * Все пороги — стартовые ориентиры для квиз-воронок с триалом; правятся в UI (/rules).
  * Баллы между точками `bands` интерполируются линейно.
  */
+/** Ранняя стадия: до 3-го дня жизни в сегменте со зрелым CPA ≤ цель × 1.2 CPA сравнивается с нормой дня, «остановить» не выносится. */
+export const DEFAULT_EARLY_STAGE = { maxAgeDays: 3, healthySegmentRatio: 1.2, minSegmentTrials: 5 };
+
 export const DEFAULT_SCORING_CONFIG: ScoringConfig = {
   version: 1,
   updatedAt: new Date(0).toISOString(),
   targetCpa: 25,
   minVisitors: 200,
+  earlyStage: DEFAULT_EARLY_STAGE,
   // Шаги под реальные события PostHog проекта Azora (funnel_screen_open + screen_id, funnel_* события).
   // Экраны intro / email / paywall / upsell_1 / upsell_2 общие для всех воронок (funnel_alias), регистр не важен.
   funnel: [

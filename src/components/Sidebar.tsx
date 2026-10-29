@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, SlidersHorizontal, Plug, Sparkles, BookOpen } from "lucide-react";
+import { LayoutDashboard, Layers, SlidersHorizontal, Plug, Sparkles, BookOpen } from "lucide-react";
 import clsx from "clsx";
 
 const NAV = [
   { href: "/", label: "Кампании", icon: LayoutDashboard },
+  { href: "/benchmarks", label: "Сегменты", icon: Layers },
   { href: "/rules", label: "Правила", icon: SlidersHorizontal },
   { href: "/settings", label: "Источники", icon: Plug },
   { href: "/docs", label: "Как считаем", icon: BookOpen },

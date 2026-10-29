@@ -1,5 +1,7 @@
+import { BENCHMARK_WINDOW_DAYS, getBenchmarks, segmentInfoFor, type BenchmarkSet } from "@/lib/benchmarks";
 import { cacheRaw, loadAllConfigs } from "@/lib/configStore";
 import { DEFAULT_PRODUCT, detectProduct, PRODUCT_KEYS } from "@/lib/products";
+import { DEFAULT_EARLY_STAGE } from "@/lib/scoring/defaultConfig";
 import { computeFunnelMetrics } from "@/lib/scoring/funnel";
 import { scoreCampaign } from "@/lib/scoring/engine";
 import { fetchCampaignStats } from "@/lib/sources/capsuled";
@@ -44,6 +46,12 @@ export async function evaluateCampaigns(dateFrom: string, dateTo: string): Promi
   let campaigns: AdCampaignStats[] | null = null;
   let funnels: FunnelCounts[] | null = null;
   const funnelsByProduct: Partial<Record<ProductKey, FunnelCounts[]>> = {};
+
+  // Бенчмарки сегментов за 60 дней — параллельно с основными запросами; при ошибке просто без них
+  const srcCfg = sourcesConfig();
+  const benchPromise: Promise<BenchmarkSet | null> = srcCfg.live
+    ? getBenchmarks({ capsuled: srcCfg.capsuled, posthog: srcCfg.posthog }, dateTo, (p) => configs[p ?? DEFAULT_PRODUCT].targetCpa).catch(() => null)
+    : Promise.resolve(null);
 
   if (isLiveMode()) {
     // --- Дашборд баеров
@@ -127,6 +135,12 @@ export async function evaluateCampaigns(dateFrom: string, dateTo: string): Promi
     funnels = [];
   }
 
+  const bench = await benchPromise;
+  if (srcCfg.live) {
+    const cap = sources.find((s) => s.source === "capsuled");
+    if (cap?.ok) cap.message += bench ? `; бенчмарки сегментов за ${BENCHMARK_WINDOW_DAYS} дн.: ${Object.values(bench.segments).filter((g) => g.geo !== "*").length}` : "; бенчмарки сегментов недоступны";
+  }
+
   const funnelById = new Map(funnels.map((f) => [f.campaignId, f]));
   const byProduct = new Map<ProductKey, Map<string, FunnelCounts>>();
   for (const p of PRODUCT_KEYS) {
@@ -140,8 +154,9 @@ export async function evaluateCampaigns(dateFrom: string, dateTo: string): Promi
     const pcfg = configs[product ?? DEFAULT_PRODUCT];
     const counts = (product && byProduct.get(product)?.get(ad.campaignId)) || anyCounts;
     const funnel = computeFunnelMetrics(counts, pcfg.funnel);
-    const score = scoreCampaign(ad, funnel, pcfg);
-    return { ad, funnel, score, product, productSource };
+    const segment = srcCfg.live ? segmentInfoFor(bench, ad.campaignId, product, ad.geo ?? null, dateTo, pcfg.earlyStage ?? DEFAULT_EARLY_STAGE, pcfg.targetCpa) : null;
+    const score = scoreCampaign(ad, funnel, pcfg, { segment });
+    return { ad, funnel, score, product, productSource, segment };
   });
 
   evaluated.sort((a, b) => b.score.score - a.score.score || b.ad.spend - a.ad.spend);
