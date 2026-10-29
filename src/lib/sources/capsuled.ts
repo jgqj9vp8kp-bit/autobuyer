@@ -9,8 +9,8 @@ import type { AdCampaignStats, DailyAdStats } from "@/lib/types";
  * При includeDaily=true каждая строка rows — ОДНА кампания за ОДИН день:
  *   date, adAccountId, adAccountName, buyer, campaignId, campaignName, spend, fbPurchases (канонические
  *   покупки Meta), cpp, impressions, clicks, ctr, cpc, cpm, reach, frequency, linkClicks, landingPageViews,
- *   registrations, actions[{action_type,value}], … (статуса кампании и гео по таргетингу в ответе нет;
- *   гео запрошено у команды дашборда, см. geoOf()).
+ *   registrations, actions[{action_type,value}], geoCountries: ["JP"] (гео по таргетингу адсетов, с 2026-10-29).
+ *   Статуса кампании в ответе нет.
  * Здесь дневные строки агрегируются по campaignId в AdCampaignStats + daily[]. Маппер остаётся
  * толерантным к альтернативным именам полей и к форме «одна строка на кампанию с вложенным daily».
  */
@@ -67,9 +67,9 @@ const num = (v: unknown): number => {
 const str = (v: unknown): string | undefined => (v === undefined || v === null || v === "" ? undefined : String(v));
 
 /**
- * Гео по таргетингу. Сейчас API его не отдаёт (запрошено у команды дашборда); маппер готов к любому из
- * ожидаемых вариантов: `targetingCountries: ["JP","US"]`, `geoCountries`, `countries`, `geo`, `country`
- * (строка или массив) либо сырой объект FB `targeting.geo_locations.countries`.
+ * Гео по таргетингу. Дашборд отдаёт `geoCountries: ["JP"]` (страны из targeting.geo_locations адсетов);
+ * на всякий случай принимаются и другие имена: `targetingCountries`, `countries`, `geo`, `country`
+ * (строка или массив) либо сырой объект FB `targeting.geo_locations.countries`. Несколько стран → "CO, MX".
  */
 const GEO_KEYS = ["targetingCountries", "geoCountries", "targetingGeo", "countries", "geo", "country"];
 function geoOf(row: AnyRecord): string | undefined {

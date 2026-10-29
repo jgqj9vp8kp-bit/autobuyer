@@ -20,11 +20,14 @@ export function CampaignTable({ rows, linkQuery }: { rows: CampaignEvaluation[];
   const campaignHref = (id: string) => `/campaigns/${encodeURIComponent(id)}${linkQuery ? `?${linkQuery}` : ""}`;
   const [q, setQ] = useState("");
   const [buyer, setBuyer] = useState<string>("all");
+  const [geo, setGeo] = useState<string>("all");
   const [verdict, setVerdict] = useState<Verdict | "all">("all");
   const [status, setStatus] = useState<StatusFilter>("all");
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "score", dir: "desc" });
 
   const buyers = useMemo(() => [...new Set(rows.map((r) => r.ad.buyer ?? "—"))].sort(), [rows]);
+  // Гео по таргетингу из дашборда (geoCountries); у кампании может быть несколько стран — "CO, MX"
+  const geos = useMemo(() => [...new Set(rows.map((r) => r.ad.geo ?? "—"))].sort(), [rows]);
 
   const filtered = useMemo(() => {
     const val = (r: CampaignEvaluation, k: SortKey): number => {
@@ -48,13 +51,14 @@ export function CampaignTable({ rows, linkQuery }: { rows: CampaignEvaluation[];
     return rows
       .filter((r) => (q ? `${r.ad.campaignName} ${r.ad.campaignId} ${r.ad.buyer ?? ""} ${r.product ?? ""}`.toLowerCase().includes(q.toLowerCase()) : true))
       .filter((r) => (buyer === "all" ? true : (r.ad.buyer ?? "—") === buyer))
+      .filter((r) => (geo === "all" ? true : (r.ad.geo ?? "—") === geo))
       .filter((r) => (verdict === "all" ? true : r.score.verdict === verdict))
       .filter((r) => (status === "all" ? true : status === "active" ? r.ad.status === "ACTIVE" : INACTIVE_STATUSES.has(r.ad.status)))
       .sort((a, b) => {
         const d = val(a, sort.key) - val(b, sort.key);
         return sort.dir === "asc" ? d : -d;
       });
-  }, [rows, q, buyer, verdict, status, sort]);
+  }, [rows, q, buyer, geo, verdict, status, sort]);
 
   const toggleSort = (key: SortKey) => setSort((s) => (s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "desc" }));
 
@@ -104,6 +108,14 @@ export function CampaignTable({ rows, linkQuery }: { rows: CampaignEvaluation[];
           {buyers.map((b) => (
             <option key={b} value={b}>
               {b}
+            </option>
+          ))}
+        </select>
+        <select className="input" value={geo} onChange={(e) => setGeo(e.target.value)} title="Гео по таргетингу (из дашборда)">
+          <option value="all">Все гео</option>
+          {geos.map((g) => (
+            <option key={g} value={g}>
+              {g}
             </option>
           ))}
         </select>
