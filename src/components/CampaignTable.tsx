@@ -21,6 +21,7 @@ export function CampaignTable({ rows, linkQuery }: { rows: CampaignEvaluation[];
   const [q, setQ] = useState("");
   const [buyer, setBuyer] = useState<string>("all");
   const [geo, setGeo] = useState<string>("all");
+  const [stats, setStats] = useState<"all" | "dashboard" | "posthog">("all");
   const [verdict, setVerdict] = useState<Verdict | "all">("all");
   const [status, setStatus] = useState<StatusFilter>("all");
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "score", dir: "desc" });
@@ -52,13 +53,15 @@ export function CampaignTable({ rows, linkQuery }: { rows: CampaignEvaluation[];
       .filter((r) => (q ? `${r.ad.campaignName} ${r.ad.campaignId} ${r.ad.buyer ?? ""} ${r.product ?? ""}`.toLowerCase().includes(q.toLowerCase()) : true))
       .filter((r) => (buyer === "all" ? true : (r.ad.buyer ?? "—") === buyer))
       .filter((r) => (geo === "all" ? true : (r.ad.geo ?? "—") === geo))
+      .filter((r) => (stats === "all" ? true : stats === "posthog" ? r.ad.statsSource === "posthog" : r.ad.statsSource !== "posthog"))
       .filter((r) => (verdict === "all" ? true : r.score.verdict === verdict))
       .filter((r) => (status === "all" ? true : status === "active" ? r.ad.status === "ACTIVE" : INACTIVE_STATUSES.has(r.ad.status)))
       .sort((a, b) => {
         const d = val(a, sort.key) - val(b, sort.key);
         return sort.dir === "asc" ? d : -d;
       });
-  }, [rows, q, buyer, geo, verdict, status, sort]);
+  }, [rows, q, buyer, geo, stats, verdict, status, sort]);
+  const noStatsCount = useMemo(() => rows.filter((r) => r.ad.statsSource === "posthog").length, [rows]);
 
   const toggleSort = (key: SortKey) => setSort((s) => (s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "desc" }));
 
@@ -119,6 +122,13 @@ export function CampaignTable({ rows, linkQuery }: { rows: CampaignEvaluation[];
             </option>
           ))}
         </select>
+        {noStatsCount > 0 && (
+          <select className="input" value={stats} onChange={(e) => setStats(e.target.value as typeof stats)} title="Есть ли по кампании расход из FB-дашборда">
+            <option value="all">Все источники</option>
+            <option value="dashboard">С расходом из дашборда ({rows.length - noStatsCount})</option>
+            <option value="posthog">Только воронка, без расхода ({noStatsCount})</option>
+          </select>
+        )}
         <div className="flex items-center gap-1 rounded-full bg-subtle p-1" title={statusHint}>
           {(
             [
@@ -181,14 +191,22 @@ export function CampaignTable({ rows, linkQuery }: { rows: CampaignEvaluation[];
                     </Link>
                     <div className="mt-0.5 flex items-center gap-2 text-[11px] text-muted">
                       <span className={clsx("h-1.5 w-1.5 rounded-full", r.ad.status === "ACTIVE" ? "bg-success" : "bg-line")} title={fmtStatus(r.ad)} />
-                      <span className={clsx("font-semibold", r.product ? "text-ink" : "text-muted")}>{r.product ? PRODUCT_LABEL[r.product] : "?"}</span> · {r.ad.buyer ?? "—"} · {r.ad.geo ?? "—"} ·{" "}
-                      {r.ad.campaignId}
+                      <span className={clsx("font-semibold", r.product ? "text-ink" : "text-muted")}>{r.product ? PRODUCT_LABEL[r.product] : "?"}</span> ·{" "}
+                      {r.ad.statsSource === "posthog" ? <span className="text-warn">{r.ad.trafficSource ?? "нет в дашборде"}</span> : (r.ad.buyer ?? "—")} · {r.ad.geo ?? "—"} · {r.ad.campaignId}
                     </div>
                   </td>
                   <td>
                     <VerdictPill verdict={r.score.verdict} />
                   </td>
-                  <td className="text-right tabular-nums">{fmtMoney(r.ad.spend)}</td>
+                  <td className="text-right tabular-nums">
+                    {r.ad.statsSource === "posthog" ? (
+                      <span className="text-muted" title={`Расхода нет: ${/^\d{12,}$/.test(r.ad.campaignId) ? "в FB-дашборде нет строк по кампании за период" : `трафик не из FB (${r.ad.trafficSource ?? "источник неизвестен"})`}`}>
+                        —
+                      </span>
+                    ) : (
+                      fmtMoney(r.ad.spend)
+                    )}
+                  </td>
                   <td className="text-right tabular-nums">{fmtNum(r.funnel.visitors)}</td>
                   <td className="text-right tabular-nums">{fmtNum(r.ad.purchases)}</td>
                   <td className="text-right tabular-nums">{fmtMoney(r.ad.cpa, 2)}</td>

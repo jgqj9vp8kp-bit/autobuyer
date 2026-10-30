@@ -156,6 +156,14 @@ export async function evaluateCampaigns(dateFrom: string, dateTo: string): Promi
     const funnel = computeFunnelMetrics(counts, pcfg.funnel);
     const segment = srcCfg.live ? segmentInfoFor(bench, ad.campaignId, product, ad.geo ?? null, dateTo, pcfg.earlyStage ?? DEFAULT_EARLY_STAGE, pcfg.targetCpa) : null;
     const score = scoreCampaign(ad, funnel, pcfg, { segment });
+    if (ad.statsSource === "posthog") {
+      const fbLike = /^\d{12,}$/.test(ad.campaignId);
+      score.insights.unshift(
+        fbLike
+          ? `Расхода и CPA нет: за период в FB-дашборде нет строк по этой кампании, хотя трафик в воронку идёт (${ad.trafficSource ?? "источник неизвестен"}). Проверьте, импортируется ли её рекламный аккаунт. Оценка только по воронке.`
+          : `Расхода и CPA нет: трафик не из FB (${ad.trafficSource ?? "источник неизвестен"}), дашборд считает только Facebook. Оценка только по воронке.`,
+      );
+    }
     return { ad, funnel, score, product, productSource, segment };
   });
 
@@ -164,14 +172,27 @@ export async function evaluateCampaigns(dateFrom: string, dateTo: string): Promi
   return { dateFrom, dateTo, mode, sources, campaigns: evaluated, generatedAt: now };
 }
 
+/** Человекочитаемый источник трафика по utm_source (коды 4/22/19/int3 — так баеры помечают FB/IG). */
+export function trafficSourceLabel(utmSource?: string): string {
+  const s = (utmSource ?? "").toLowerCase();
+  if (!s) return "источник неизвестен";
+  if (s.startsWith("google")) return "Google Ads";
+  if (s.includes("tiktok") || s === "tt") return "TikTok";
+  if (/^(fb|ig|facebook|instagram|an|int\d*|\d+)$/.test(s)) return "Facebook/Instagram";
+  return utmSource as string;
+}
+
 /** Заглушка рекламной статистики для кампании, известной только по воронке PostHog. */
 function campaignFromFunnel(f: FunnelCounts, dateFrom: string, dateTo: string): AdCampaignStats {
   const isFbId = /^\d{12,}$/.test(f.campaignId);
+  const trafficSource = trafficSourceLabel(f.utmSource);
   return {
     campaignId: f.campaignId,
-    campaignName: isFbId ? `FB ${f.campaignId}${f.funnelAlias ? ` · ${f.funnelAlias}` : ""}` : f.campaignId,
+    campaignName: `${isFbId ? "FB" : trafficSource} ${f.campaignId}${f.funnelAlias ? ` · ${f.funnelAlias}` : ""}`,
     buyer: undefined,
     status: "UNKNOWN",
+    statsSource: "posthog",
+    trafficSource,
     geo: undefined,
     spend: 0,
     impressions: 0,

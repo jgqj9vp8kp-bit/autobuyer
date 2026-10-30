@@ -147,7 +147,7 @@ export default async function CampaignPage({
           </ul>
         </div>
         <div className="grid w-full grid-cols-2 gap-2 sm:w-auto sm:grid-cols-4">
-          {stat("Расход", fmtMoney(ad.spend))}
+          {stat("Расход", ad.statsSource === "posthog" ? "—" : fmtMoney(ad.spend), ad.statsSource === "posthog" ? `нет в дашборде · ${ad.trafficSource ?? "источник неизвестен"}` : undefined)}
           {stat("Триалы", fmtNum(ad.purchases), `CPA ${fmtMoney(ad.cpa, 2)}`)}
           {stat("Визиты", fmtNum(funnel.visitors), `CTR ${ad.ctr.toFixed(2)}%`)}
           {stat("ROAS", ad.roas ? `${ad.roas.toFixed(2)}x` : "—", `выручка ${fmtMoney(ad.revenue)}`)}

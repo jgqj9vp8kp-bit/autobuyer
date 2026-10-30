@@ -35,6 +35,10 @@ export interface AdCampaignStats {
   status: "ACTIVE" | "INACTIVE" | "PAUSED" | "ARCHIVED" | "UNKNOWN";
   /** Последний день с показами или расходом (YYYY-MM-DD) */
   lastActiveDate?: string;
+  /** Откуда рекламная статистика: capsuled — из дашборда; posthog — кампания собрана только из воронки (расхода нет) */
+  statsSource?: "capsuled" | "posthog" | "demo";
+  /** Источник трафика по utm_source (для кампаний без данных дашборда): «Google Ads», «TikTok»… */
+  trafficSource?: string;
   objective?: string;
   geo?: string;
   spend: number;
@@ -77,6 +81,8 @@ export interface FunnelCounts {
   funnelAlias?: string;
   /** Домен воронки (properties.$host) — по нему определяется продукт */
   host?: string;
+  /** utm_source событий (google / 4 / 22 / tiktok…) — откуда трафик, если кампании нет в дашборде */
+  utmSource?: string;
 }
 
 /** Метрики воронки, вычисленные из FunnelCounts. */

@@ -145,6 +145,7 @@ function aggregateCampaign(campaignId: string, rows: AnyRecord[], latestActiveDa
     buyer: str(pick(latestRow, ["buyer", "buyerName", "user", "userName", "owner", "manager"])),
     status: explicitStatus ?? derivedStatus,
     lastActiveDate,
+    statsSource: "capsuled",
     objective: str(pick(latestRow, ["objective"])),
     geo: geoOf(latestRow),
     spend,
