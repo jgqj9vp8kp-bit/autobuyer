@@ -10,6 +10,7 @@ import { Card, Kicker, VerdictPill } from "@/components/ui";
 import { loadConfig } from "@/lib/configStore";
 import { defaultRange, evaluateCached } from "@/lib/evaluate";
 import { bucketCpa } from "@/lib/benchmarks";
+import { CHANNEL_LABEL } from "@/lib/channels";
 import { addDaysIso, fmtDate, fmtMoney, fmtNum, fmtPct, fmtStatus } from "@/lib/format";
 import { scoreHistoryCached } from "@/lib/history";
 import { DEFAULT_PRODUCT, PRODUCT_LABEL, PRODUCT_SOURCE_LABEL } from "@/lib/products";
@@ -55,7 +56,7 @@ export default async function CampaignPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ from?: string; to?: string; r?: string; hist?: string; product?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; r?: string; hist?: string; product?: string; channel?: string }>;
 }) {
   const { id: rawId } = await params;
   // id кампании может содержать пробелы (TikTok: "BR_hand_1-5 PR") — в params он приходит закодированным
@@ -89,7 +90,7 @@ export default async function CampaignPage({
   const es = { maxAgeDays: 3 };
   const meta = VERDICT_META[score.verdict];
   const [history, cfg] = await Promise.all([scoreHistoryCached(ad, to, histDays, 7, product), loadConfig(product ?? DEFAULT_PRODUCT)]);
-  const backQuery = `from=${from}&to=${to}${sp.product ? `&product=${sp.product}` : ""}`;
+  const backQuery = `from=${from}&to=${to}&channel=${sp.channel ?? row.channel}${sp.product ? `&product=${sp.product}` : ""}`;
   const scored = history.points.filter((p) => p.verdict !== "NO_DATA");
   const first = scored[0];
   const last = scored[scored.length - 1];
@@ -129,7 +130,7 @@ export default async function CampaignPage({
             <span className="font-semibold text-ink" title={`Продукт ${PRODUCT_SOURCE_LABEL[productSource]}${product ? "" : `; правила ${PRODUCT_LABEL[DEFAULT_PRODUCT]}`}`}>
               {product ? PRODUCT_LABEL[product] : "продукт не определён"}
             </span>{" "}
-            · {ad.campaignId} · {ad.buyer ?? "—"} · {ad.geo ?? "—"} · {ad.accountName ?? ad.accountId ?? ""} · {fmtStatus(ad)}
+            · {CHANNEL_LABEL[row.channel]} · {ad.campaignId} · {ad.buyer ?? "—"} · {ad.geo ?? "—"} · {ad.accountName ?? ad.accountId ?? ""} · {fmtStatus(ad)}
             {funnel.funnelAlias && (
               <>
                 {" "}

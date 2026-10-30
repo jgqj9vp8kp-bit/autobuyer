@@ -13,6 +13,8 @@ export type DataSource = "capsuled" | "posthog" | "demo";
 export type ProductKey = "azora" | "foxiq" | "robella";
 /** Откуда взят продукт кампании */
 export type ProductSource = "posthog" | "name-url" | "name" | "account" | "none";
+/** Канал трафика: данные по каналам не смешиваются (расход есть только у Facebook) */
+export type Channel = "facebook" | "google" | "tiktok" | "other";
 
 /** Дневная статистика по рекламе. */
 export interface DailyAdStats {
@@ -39,6 +41,8 @@ export interface AdCampaignStats {
   statsSource?: "capsuled" | "posthog" | "demo";
   /** Источник трафика по utm_source (для кампаний без данных дашборда): «Google Ads», «TikTok»… */
   trafficSource?: string;
+  /** Сырой utm_source из PostHog (для кампаний без данных дашборда) */
+  utmSource?: string;
   objective?: string;
   geo?: string;
   spend: number;
@@ -253,6 +257,8 @@ export interface CampaignEvaluation {
   productSource: ProductSource;
   /** Сегмент и бенчмарк (только в live-режиме) */
   segment?: SegmentInfo | null;
+  /** Канал трафика */
+  channel: Channel;
 }
 
 export interface SourceStatus {

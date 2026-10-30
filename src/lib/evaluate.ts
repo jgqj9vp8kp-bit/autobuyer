@@ -1,4 +1,5 @@
 import { BENCHMARK_WINDOW_DAYS, getBenchmarks, segmentInfoFor, type BenchmarkSet } from "@/lib/benchmarks";
+import { channelOf, trafficSourceLabel } from "@/lib/channels";
 import { cacheRaw, loadAllConfigs } from "@/lib/configStore";
 import { DEFAULT_PRODUCT, detectProduct, PRODUCT_KEYS } from "@/lib/products";
 import { DEFAULT_EARLY_STAGE } from "@/lib/scoring/defaultConfig";
@@ -164,22 +165,12 @@ export async function evaluateCampaigns(dateFrom: string, dateTo: string): Promi
           : `Расхода и CPA нет: трафик не из FB (${ad.trafficSource ?? "источник неизвестен"}), дашборд считает только Facebook. Оценка только по воронке.`,
       );
     }
-    return { ad, funnel, score, product, productSource, segment };
+    return { ad, funnel, score, product, productSource, segment, channel: channelOf(ad) };
   });
 
   evaluated.sort((a, b) => b.score.score - a.score.score || b.ad.spend - a.ad.spend);
 
   return { dateFrom, dateTo, mode, sources, campaigns: evaluated, generatedAt: now };
-}
-
-/** Человекочитаемый источник трафика по utm_source (коды 4/22/19/int3 — так баеры помечают FB/IG). */
-export function trafficSourceLabel(utmSource?: string): string {
-  const s = (utmSource ?? "").toLowerCase();
-  if (!s) return "источник неизвестен";
-  if (s.startsWith("google")) return "Google Ads";
-  if (s.includes("tiktok") || s === "tt") return "TikTok";
-  if (/^(fb|ig|facebook|instagram|an|int\d*|\d+)$/.test(s)) return "Facebook/Instagram";
-  return utmSource as string;
 }
 
 /** Заглушка рекламной статистики для кампании, известной только по воронке PostHog. */
@@ -193,6 +184,7 @@ function campaignFromFunnel(f: FunnelCounts, dateFrom: string, dateTo: string): 
     status: "UNKNOWN",
     statsSource: "posthog",
     trafficSource,
+    utmSource: f.utmSource,
     geo: undefined,
     spend: 0,
     impressions: 0,
