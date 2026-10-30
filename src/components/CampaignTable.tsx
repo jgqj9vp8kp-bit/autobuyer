@@ -21,7 +21,10 @@ export function CampaignTable({ rows, linkQuery }: { rows: CampaignEvaluation[];
   const [q, setQ] = useState("");
   const [buyer, setBuyer] = useState<string>("all");
   const [geo, setGeo] = useState<string>("all");
-  const [stats, setStats] = useState<"all" | "dashboard" | "posthog">("all");
+  // По умолчанию показываем кампании с расходом из дашборда; там, где таких нет (Google/TikTok), фильтр не применяется
+  const [stats, setStats] = useState<"all" | "dashboard" | "posthog">("dashboard");
+  const hasDashboardRows = useMemo(() => rows.some((r) => r.ad.statsSource !== "posthog"), [rows]);
+  const effectiveStats = stats === "dashboard" && !hasDashboardRows ? "all" : stats;
   const [verdict, setVerdict] = useState<Verdict | "all">("all");
   const [status, setStatus] = useState<StatusFilter>("all");
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "score", dir: "desc" });
@@ -53,14 +56,14 @@ export function CampaignTable({ rows, linkQuery }: { rows: CampaignEvaluation[];
       .filter((r) => (q ? `${r.ad.campaignName} ${r.ad.campaignId} ${r.ad.buyer ?? ""} ${r.product ?? ""}`.toLowerCase().includes(q.toLowerCase()) : true))
       .filter((r) => (buyer === "all" ? true : (r.ad.buyer ?? "—") === buyer))
       .filter((r) => (geo === "all" ? true : (r.ad.geo ?? "—") === geo))
-      .filter((r) => (stats === "all" ? true : stats === "posthog" ? r.ad.statsSource === "posthog" : r.ad.statsSource !== "posthog"))
+      .filter((r) => (effectiveStats === "all" ? true : effectiveStats === "posthog" ? r.ad.statsSource === "posthog" : r.ad.statsSource !== "posthog"))
       .filter((r) => (verdict === "all" ? true : r.score.verdict === verdict))
       .filter((r) => (status === "all" ? true : status === "active" ? r.ad.status === "ACTIVE" : INACTIVE_STATUSES.has(r.ad.status)))
       .sort((a, b) => {
         const d = val(a, sort.key) - val(b, sort.key);
         return sort.dir === "asc" ? d : -d;
       });
-  }, [rows, q, buyer, geo, stats, verdict, status, sort]);
+  }, [rows, q, buyer, geo, effectiveStats, verdict, status, sort]);
   const noStatsCount = useMemo(() => rows.filter((r) => r.ad.statsSource === "posthog").length, [rows]);
 
   const toggleSort = (key: SortKey) => setSort((s) => (s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "desc" }));
@@ -123,7 +126,7 @@ export function CampaignTable({ rows, linkQuery }: { rows: CampaignEvaluation[];
           ))}
         </select>
         {noStatsCount > 0 && (
-          <select className="input" value={stats} onChange={(e) => setStats(e.target.value as typeof stats)} title="Есть ли по кампании расход из FB-дашборда">
+          <select className="input" value={effectiveStats} onChange={(e) => setStats(e.target.value as typeof stats)} title="Есть ли по кампании расход из FB-дашборда">
             <option value="all">Все источники</option>
             <option value="dashboard">С расходом из дашборда ({rows.length - noStatsCount})</option>
             <option value="posthog">Только воронка, без расхода ({noStatsCount})</option>
