@@ -16,17 +16,30 @@ Node или Docker, постоянный диск для `DATA_DIR` и пере�
 
 ## Вариант 1 (рекомендуется): Render из GitHub
 
-В репозитории лежит `render.yaml` (Blueprint): web-сервис из `Dockerfile`, диск 1 ГБ на `/data`,
-health check `/api/health`, переменные окружения.
+В репозитории лежит `render.yaml` (Blueprint): web-сервис из `Dockerfile` на бесплатном тарифе,
+health check `/api/health`, переменные окружения. Регистрация на Render — через GitHub или email,
+без телефона и карты.
 
 1. render.com → Sign up через GitHub, дать доступ к репозиторию `jgqj9vp8kp-bit/autobuyer`.
-2. Dashboard → New → Blueprint → выбрать репозиторий → Render прочитает `render.yaml` и спросит секреты:
-   `CAPSULED_API_KEY`, `POSTHOG_API_KEY`, `BASIC_AUTH_PASSWORD`. Остальное уже заполнено.
-3. Apply. Первая сборка занимает 3–5 минут, после неё появится адрес `https://autobuyer-….onrender.com`.
-4. Диск требует платный план (Starter). На free-плане данные в `/data` не сохраняются и сервис засыпает.
+2. Правила скоринга на бесплатном тарифе хранятся в Redis: upstash.com → Sign up (GitHub) → Create database
+   (Regional, Frankfurt, Free) → во вкладке REST API скопировать `UPSTASH_REDIS_REST_URL` и
+   `UPSTASH_REDIS_REST_TOKEN` — это значения для `KV_REST_API_URL` и `KV_REST_API_TOKEN`.
+3. Render Dashboard → New → Blueprint → выбрать репозиторий → Render прочитает `render.yaml` и спросит
+   секреты: `CAPSULED_API_KEY`, `POSTHOG_API_KEY` (из `.env.local`), `BASIC_AUTH_PASSWORD` (любой пароль),
+   `KV_REST_API_URL`, `KV_REST_API_TOKEN` (из Upstash). Остальное уже заполнено.
+4. Apply. Первая сборка 3–5 минут, адрес вида `https://autobuyer-….onrender.com`.
 
-Через API то же самое делается одним запросом `POST https://api.render.com/v1/services` с API-ключом
+Ограничения free: сервис засыпает без трафика (первый запрос ~30–60 с), 512 МБ RAM. Платный Starter
+снимает сон, и тогда вместо Redis можно добавить диск 1 ГБ на `/data` (Settings → Disks) и убрать KV-переменные.
+
+Через API то же самое делается запросом `POST https://api.render.com/v1/services` с API-ключом
 (Account Settings → API Keys), если нужно автоматизировать.
+
+## Vercel
+
+Next.js там родной, конфиг под него тоже готов (`vercel.json`, `maxDuration`, правила в Redis через
+`KV_REST_API_URL`/`KV_REST_API_TOKEN` или интеграцию Upstash из вкладки Storage). Но регистрация Vercel
+просит подтверждение по телефону (SMS), а функции ограничены по времени, поэтому основной вариант — Render.
 
 ## Railway
 

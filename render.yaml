@@ -1,23 +1,21 @@
 # Render Blueprint: dashboard → New → Blueprint → выбрать репозиторий → Apply.
 # Секретные переменные (sync: false) Render спросит при создании.
+#
+# Бесплатный тариф: сервис засыпает без трафика (первый запрос после паузы ~30–60 с) и не имеет
+# постоянного диска, поэтому правила скоринга хранятся в Upstash Redis (KV_REST_API_URL/TOKEN,
+# бесплатный тариф Upstash). Платный Starter: можно вместо Redis добавить диск на /data (см. DEPLOY.md).
 services:
   - type: web
     name: autobuyer
     runtime: docker
-    plan: starter # нужен платный план ради постоянного диска; free не хранит /data и засыпает
+    plan: free
     region: frankfurt
     dockerfilePath: ./Dockerfile
     healthCheckPath: /api/health
     autoDeploy: true
-    disk:
-      name: autobuyer-data
-      mountPath: /data
-      sizeGB: 1
     envVars:
       - key: DATA_MODE
         value: live
-      - key: DATA_DIR
-        value: /data
       - key: CAPSULED_API_URL
         value: https://capsuled.space/api/external/v1
       - key: CAPSULED_API_KEY
@@ -31,4 +29,8 @@ services:
       - key: BASIC_AUTH_USER
         value: team
       - key: BASIC_AUTH_PASSWORD
+        sync: false
+      - key: KV_REST_API_URL
+        sync: false
+      - key: KV_REST_API_TOKEN
         sync: false
