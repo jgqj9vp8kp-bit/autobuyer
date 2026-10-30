@@ -10,3 +10,6 @@ export async function GET(req: NextRequest) {
   const data = await evaluateCached(from, to, sp.get("refresh") === "1");
   return NextResponse.json(data);
 }
+
+/** Vercel: лимит времени функции (бенчмарки и воронки за длинный период) */
+export const maxDuration = 60;

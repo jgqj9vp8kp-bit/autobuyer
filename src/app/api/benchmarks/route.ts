@@ -13,3 +13,6 @@ export async function GET(req: NextRequest) {
   const set = await getBenchmarks({ capsuled: src.capsuled, posthog: src.posthog }, to, (p) => configs[p ?? DEFAULT_PRODUCT].targetCpa);
   return NextResponse.json(set);
 }
+
+/** Vercel: лимит времени функции (бенчмарки и воронки за длинный период) */
+export const maxDuration = 60;

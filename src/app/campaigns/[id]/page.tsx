@@ -19,6 +19,8 @@ import clsx from "clsx";
 import { Suspense } from "react";
 
 export const dynamic = "force-dynamic";
+// Vercel: запросы к дашборду и PostHog (60-дневные бенчмарки) могут занимать больше 10 с по умолчанию
+export const maxDuration = 60;
 
 const HISTORY_PRESETS = [14, 30, 60, 90];
 

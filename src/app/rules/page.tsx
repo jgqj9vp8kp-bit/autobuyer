@@ -3,6 +3,8 @@ import { loadAllConfigs } from "@/lib/configStore";
 import { DEFAULT_PRODUCT, isProductKey } from "@/lib/products";
 
 export const dynamic = "force-dynamic";
+// Vercel: запросы к дашборду и PostHog (60-дневные бенчмарки) могут занимать больше 10 с по умолчанию
+export const maxDuration = 60;
 
 export default async function RulesPage({ searchParams }: { searchParams: Promise<{ product?: string }> }) {
   const sp = await searchParams;

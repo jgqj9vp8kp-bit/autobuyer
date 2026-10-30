@@ -12,6 +12,8 @@ import { isProductKey, PRODUCT_KEYS, PRODUCT_LABEL } from "@/lib/products";
 import type { Channel, ProductKey } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+// Vercel: запросы к дашборду и PostHog (60-дневные бенчмарки) могут занимать больше 10 с по умолчанию
+export const maxDuration = 60;
 
 type SP = Promise<{ from?: string; to?: string; r?: string; product?: string; channel?: string }>;
 

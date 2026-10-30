@@ -10,6 +10,8 @@ import { DEFAULT_PRODUCT, isProductKey, PRODUCT_KEYS } from "@/lib/products";
 import type { DayBucket, ProductKey, SegmentBenchmark } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+// Vercel: запросы к дашборду и PostHog (60-дневные бенчмарки) могут занимать больше 10 с по умолчанию
+export const maxDuration = 60;
 
 export default async function BenchmarksPage({ searchParams }: { searchParams: Promise<{ product?: string; to?: string }> }) {
   const sp = await searchParams;

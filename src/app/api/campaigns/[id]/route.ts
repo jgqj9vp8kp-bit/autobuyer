@@ -12,3 +12,6 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   if (!row) return NextResponse.json({ error: "not_found" }, { status: 404 });
   return NextResponse.json({ ...row, dateFrom: data.dateFrom, dateTo: data.dateTo, mode: data.mode });
 }
+
+/** Vercel: лимит времени функции (бенчмарки и воронки за длинный период) */
+export const maxDuration = 60;
