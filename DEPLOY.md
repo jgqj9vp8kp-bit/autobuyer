@@ -14,15 +14,26 @@ Node или Docker, постоянный диск для `DATA_DIR` и пере�
 
 Полный список переменных — в `.env.example`.
 
-## Вариант 1 (рекомендуется): Railway из GitHub
+## Вариант 1 (рекомендуется): Render из GitHub
 
-1. railway.app → New Project → Deploy from GitHub repo → `jgqj9vp8kp-bit/autobuyer`. Railway увидит `Dockerfile`.
-2. Settings → Volumes → Add volume, mount path `/data`.
-3. Variables → добавить переменные из `.env.example` (как минимум `DATA_MODE`, ключи capsuled и PostHog,
-   `BASIC_AUTH_PASSWORD`). `DATA_DIR` оставить `/data` (уже задан в образе), `PORT` Railway подставит сам.
-4. Settings → Networking → Generate domain. Healthcheck path: `/api/health`.
+В репозитории лежит `render.yaml` (Blueprint): web-сервис из `Dockerfile`, диск 1 ГБ на `/data`,
+health check `/api/health`, переменные окружения.
 
-Render и Fly.io работают так же (Dockerfile + persistent disk/volume + env vars).
+1. render.com → Sign up через GitHub, дать доступ к репозиторию `jgqj9vp8kp-bit/autobuyer`.
+2. Dashboard → New → Blueprint → выбрать репозиторий → Render прочитает `render.yaml` и спросит секреты:
+   `CAPSULED_API_KEY`, `POSTHOG_API_KEY`, `BASIC_AUTH_PASSWORD`. Остальное уже заполнено.
+3. Apply. Первая сборка занимает 3–5 минут, после неё появится адрес `https://autobuyer-….onrender.com`.
+4. Диск требует платный план (Starter). На free-плане данные в `/data` не сохраняются и сервис засыпает.
+
+Через API то же самое делается одним запросом `POST https://api.render.com/v1/services` с API-ключом
+(Account Settings → API Keys), если нужно автоматизировать.
+
+## Railway
+
+Аналогично: New Project → Deploy from GitHub repo, Volume на `/data`, Variables из `.env.example`,
+Generate domain, healthcheck `/api/health`. На 30.10.2026 Railway не принимал новые регистрации
+(«Sign ups are currently disabled»), поэтому основной вариант — Render. Fly.io тоже подходит (Dockerfile +
+volume + secrets через `flyctl`).
 
 ## Вариант 2: свой сервер (VPS) с Docker
 

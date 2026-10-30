@@ -1,0 +1,34 @@
+# Render Blueprint: dashboard → New → Blueprint → выбрать репозиторий → Apply.
+# Секретные переменные (sync: false) Render спросит при создании.
+services:
+  - type: web
+    name: autobuyer
+    runtime: docker
+    plan: starter # нужен платный план ради постоянного диска; free не хранит /data и засыпает
+    region: frankfurt
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    autoDeploy: true
+    disk:
+      name: autobuyer-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: DATA_MODE
+        value: live
+      - key: DATA_DIR
+        value: /data
+      - key: CAPSULED_API_URL
+        value: https://capsuled.space/api/external/v1
+      - key: CAPSULED_API_KEY
+        sync: false
+      - key: POSTHOG_HOST
+        value: https://ph.app-inkfolio-reader.pro
+      - key: POSTHOG_PROJECT_ID
+        value: "1"
+      - key: POSTHOG_API_KEY
+        sync: false
+      - key: BASIC_AUTH_USER
+        value: team
+      - key: BASIC_AUTH_PASSWORD
+        sync: false
