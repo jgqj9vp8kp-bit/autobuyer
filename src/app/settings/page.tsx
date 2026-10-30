@@ -19,7 +19,8 @@ export default async function SettingsPage() {
         <div className="kicker">Источники данных</div>
         <h1 className="mt-1 text-3xl font-bold">Подключения</h1>
         <p className="mt-2 max-w-2xl text-sm text-muted">
-          Ключи задаются в <code>.env.local</code> (см. <code>.env.example</code>). Режим: <b>{isLiveMode() ? "LIVE" : "DEMO"}</b>. После изменения env перезапустите dev-сервер.
+          Ключи задаются в <code>.env.local</code> (см. <code>.env.example</code>). Режим: <b>{isLiveMode() ? "LIVE" : "DEMO"}</b>. После изменения env перезапустите dev-сервер. Доступ по паролю:{" "}
+          <b className={env.BASIC_AUTH_PASSWORD ? "text-success" : "text-danger"}>{env.BASIC_AUTH_PASSWORD ? "включён (Basic Auth)" : "выключен — задайте BASIC_AUTH_PASSWORD перед публикацией"}</b>.
         </p>
       </header>
 

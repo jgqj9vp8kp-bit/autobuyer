@@ -9,7 +9,8 @@ import type { ProductKey, ScoringConfig } from "@/lib/types";
  * Если файла продукта нет, берётся общий data/scoring-config.json (конфиг до разделения по продуктам),
  * а если нет и его — значения по умолчанию.
  */
-const DATA_DIR = path.join(process.cwd(), "data");
+// DATA_DIR — куда писать конфиги и кеш; в Docker это примонтированный том (/data), иначе ./data
+const DATA_DIR = process.env.DATA_DIR?.trim() || path.join(process.cwd(), "data");
 const LEGACY_PATH = path.join(DATA_DIR, "scoring-config.json");
 const configPath = (product: ProductKey) => path.join(DATA_DIR, `scoring-config.${product}.json`);
 

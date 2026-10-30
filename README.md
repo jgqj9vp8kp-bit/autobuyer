@@ -103,6 +103,10 @@ src/app/api/                  evaluate, campaigns/:id, config (GET/PUT/DELETE), 
 дня в сегменте (а не с целью), а вердикт «остановить» заменяется на «держать». Для сегментов, у которых
 и зрелый CPA дорогой, поблажки нет. История скора считается без этого правила.
 
+## Деплой
+
+См. [DEPLOY.md](DEPLOY.md): Docker-образ (standalone), пароль через `BASIC_AUTH_PASSWORD`, том для `DATA_DIR`.
+
 ## Каналы трафика
 
 Канал кампании (`src/lib/channels.ts`): всё, что есть в FB-дашборде — Facebook; остальное по `utm_source`
