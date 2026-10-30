@@ -2,8 +2,9 @@
 # Секретные переменные (sync: false) Render спросит при создании.
 #
 # Бесплатный тариф: сервис засыпает без трафика (первый запрос после паузы ~30–60 с) и не имеет
-# постоянного диска, поэтому правила скоринга хранятся в Upstash Redis (KV_REST_API_URL/TOKEN,
-# бесплатный тариф Upstash). Платный Starter: можно вместо Redis добавить диск на /data (см. DEPLOY.md).
+# постоянного диска: правила скоринга сбрасываются при перезапуске, пока не добавлены переменные
+# KV_REST_API_URL / KV_REST_API_TOKEN от Upstash Redis (Environment в панели Render, см. DEPLOY.md).
+# Платный Starter: можно вместо Redis добавить диск на /data.
 services:
   - type: web
     name: autobuyer
@@ -29,8 +30,4 @@ services:
       - key: BASIC_AUTH_USER
         value: team
       - key: BASIC_AUTH_PASSWORD
-        sync: false
-      - key: KV_REST_API_URL
-        sync: false
-      - key: KV_REST_API_TOKEN
         sync: false
