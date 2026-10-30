@@ -24,8 +24,14 @@ export default async function SettingsPage() {
         <p className="mt-2 max-w-2xl text-sm text-muted">
           Ключи задаются в <code>.env.local</code> (см. <code>.env.example</code>). Режим: <b>{isLiveMode() ? "LIVE" : "DEMO"}</b>. После изменения env перезапустите dev-сервер. Доступ по паролю:{" "}
           <b className={env.BASIC_AUTH_PASSWORD ? "text-success" : "text-danger"}>{env.BASIC_AUTH_PASSWORD ? "включён (Basic Auth)" : "выключен — задайте BASIC_AUTH_PASSWORD перед публикацией"}</b>. Хранилище правил:{" "}
-          <b className={storageInfo().kind === "kv" || !env.VERCEL ? "text-success" : "text-danger"}>
-            {storageInfo().kind === "kv" ? `Redis (${storageInfo().detail})` : env.VERCEL ? "файлы — на Vercel не сохранятся, подключите Upstash Redis (Storage)" : `файлы (${storageInfo().detail})`}
+          <b className={storageInfo().kind !== "files" || !(env.VERCEL || env.RENDER) ? "text-success" : "text-danger"}>
+            {storageInfo().kind === "kv"
+              ? `Redis REST (${storageInfo().detail})`
+              : storageInfo().kind === "redis"
+                ? `Redis (${storageInfo().detail})`
+                : env.VERCEL || env.RENDER
+                  ? "файлы — на этом хостинге не сохранятся между перезапусками, подключите Redis"
+                  : `файлы (${storageInfo().detail})`}
           </b>
           .
         </p>

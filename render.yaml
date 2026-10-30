@@ -1,10 +1,11 @@
 # Render Blueprint: dashboard → New → Blueprint → выбрать репозиторий → Apply.
 # Секретные переменные (sync: false) Render спросит при создании.
 #
-# Бесплатный тариф: сервис засыпает без трафика (первый запрос после паузы ~30–60 с) и не имеет
-# постоянного диска: правила скоринга сбрасываются при перезапуске, пока не добавлены переменные
-# KV_REST_API_URL / KV_REST_API_TOKEN от Upstash Redis (Environment в панели Render, см. DEPLOY.md).
-# Платный Starter: можно вместо Redis добавить диск на /data.
+# Бесплатный тариф web-сервиса: засыпает без трафика (первый запрос после паузы ~30–60 с) и не имеет
+# постоянного диска. Правила скоринга поэтому живут в Key Value (Redis) Render — адрес подключения
+# Render подставляет в REDIS_URL сам. У бесплатного Key Value нет персистентности на диск: при его
+# перезапуске правила вернутся к значениям по умолчанию. Надёжнее — Upstash Redis
+# (KV_REST_API_URL / KV_REST_API_TOKEN в Environment, тогда REDIS_URL игнорируется) или платный тариф.
 services:
   - type: web
     name: autobuyer
@@ -31,3 +32,15 @@ services:
         value: team
       - key: BASIC_AUTH_PASSWORD
         sync: false
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: autobuyer-kv
+          property: connectionString
+
+  - type: keyvalue
+    name: autobuyer-kv
+    plan: free
+    region: frankfurt
+    maxmemoryPolicy: noeviction
+    ipAllowList: [] # только внутренняя сеть Render

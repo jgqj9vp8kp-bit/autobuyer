@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
-import { defaultRange, evaluateCached, isLiveMode } from "@/lib/evaluate";
+import { storageInfo } from "@/lib/configStore";
+import { isLiveMode } from "@/lib/evaluate";
 
+/**
+ * Health-чек для хостинга: без авторизации и без обращения к источникам (их статус — на странице «Источники»).
+ * Возвращает режим данных и тип хранилища правил.
+ */
 export async function GET() {
-  const r = defaultRange();
-  const data = await evaluateCached(r.dateFrom, r.dateTo);
-  return NextResponse.json({ ok: true, mode: isLiveMode() ? "live" : "demo", effectiveMode: data.mode, sources: data.sources, campaigns: data.campaigns.length });
+  return NextResponse.json({ ok: true, mode: isLiveMode() ? "live" : "demo", storage: storageInfo().kind });
 }

@@ -1,5 +1,6 @@
 import { promises as fs } from "fs";
 import path from "path";
+import type Redis from "ioredis";
 import { DEFAULT_SCORING_CONFIG } from "@/lib/scoring/defaultConfig";
 import { DEFAULT_PRODUCT, PRODUCT_KEYS } from "@/lib/products";
 import type { ProductKey, ScoringConfig } from "@/lib/types";
@@ -7,10 +8,11 @@ import type { ProductKey, ScoringConfig } from "@/lib/types";
 /**
  * Конфиг скоринга хранится отдельно для каждого продукта.
  *
- * Два хранилища:
- *  - Redis через REST (Upstash / Vercel KV): включается, если заданы KV_REST_API_URL + KV_REST_API_TOKEN
- *    (или UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN). Нужен на serverless-хостингах (Vercel),
- *    где файловая система не сохраняется между запросами.
+ * Хранилища (по приоритету):
+ *  - Redis через REST (Upstash / Vercel KV): KV_REST_API_URL + KV_REST_API_TOKEN
+ *    (или UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN). Для serverless-хостингов.
+ *  - Redis по протоколу (REDIS_URL=redis://… или rediss://…): например, Render Key Value,
+ *    адрес которого Render подставляет сам из render.yaml.
  *  - Файлы data/scoring-config.<product>.json (DATA_DIR) — локально и в Docker с томом.
  * Если файла продукта нет, берётся общий data/scoring-config.json (конфиг до разделения по продуктам),
  * а если нет и его — значения по умолчанию.
@@ -21,37 +23,72 @@ const configPath = (product: ProductKey) => path.join(DATA_DIR, `scoring-config.
 
 const KV_PREFIX = "autobuyer:config:";
 
-function kvConfig(): { url: string; token: string } | null {
-  const url = (process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || "").trim();
+interface Store {
+  kind: "kv" | "redis";
+  detail: string;
+  get(key: string): Promise<string | null>;
+  set(key: string, value: string): Promise<void>;
+}
+
+function restStore(): Store | null {
+  const url = (process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || "").trim().replace(/\/$/, "");
   const token = (process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || "").trim();
-  return url && token ? { url: url.replace(/\/$/, ""), token } : null;
+  if (!url || !token) return null;
+  const headers = { Authorization: `Bearer ${token}` };
+  return {
+    kind: "kv",
+    detail: new URL(url).host,
+    async get(key) {
+      const res = await fetch(`${url}/get/${encodeURIComponent(key)}`, { headers, cache: "no-store" });
+      if (!res.ok) throw new Error(`KV GET ${key}: HTTP ${res.status}`);
+      const body = (await res.json()) as { result: string | null };
+      return body.result ?? null;
+    },
+    async set(key, value) {
+      const res = await fetch(`${url}/set/${encodeURIComponent(key)}`, { method: "POST", headers: { ...headers, "Content-Type": "text/plain" }, body: value, cache: "no-store" });
+      if (!res.ok) throw new Error(`KV SET ${key}: HTTP ${res.status}`);
+    },
+  };
 }
 
-async function kvGet(key: string): Promise<string | null> {
-  const kv = kvConfig();
-  if (!kv) return null;
-  const res = await fetch(`${kv.url}/get/${encodeURIComponent(key)}`, { headers: { Authorization: `Bearer ${kv.token}` }, cache: "no-store" });
-  if (!res.ok) throw new Error(`KV GET ${key}: HTTP ${res.status}`);
-  const body = (await res.json()) as { result: string | null };
-  return body.result ?? null;
+let redisClient: Redis | null = null;
+function redisStore(): Store | null {
+  const url = process.env.REDIS_URL?.trim();
+  if (!url) return null;
+  const client = async () => {
+    if (!redisClient) {
+      const { default: RedisCtor } = await import("ioredis");
+      redisClient = new RedisCtor(url, { lazyConnect: true, maxRetriesPerRequest: 2, connectTimeout: 5000, enableOfflineQueue: true });
+      redisClient.on("error", () => {
+        /* ошибки ловим на уровне команд */
+      });
+    }
+    return redisClient;
+  };
+  let host = "redis";
+  try {
+    host = new URL(url).host;
+  } catch {
+    /* оставляем «redis» */
+  }
+  return {
+    kind: "redis",
+    detail: host,
+    async get(key) {
+      return (await client()).get(key);
+    },
+    async set(key, value) {
+      await (await client()).set(key, value);
+    },
+  };
 }
 
-async function kvSet(key: string, value: string): Promise<void> {
-  const kv = kvConfig();
-  if (!kv) return;
-  const res = await fetch(`${kv.url}/set/${encodeURIComponent(key)}`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${kv.token}`, "Content-Type": "text/plain" },
-    body: value,
-    cache: "no-store",
-  });
-  if (!res.ok) throw new Error(`KV SET ${key}: HTTP ${res.status}`);
-}
+const store = (): Store | null => restStore() ?? redisStore();
 
-/** Какое хранилище используется — для страницы «Источники». */
-export function storageInfo(): { kind: "kv" | "files"; detail: string } {
-  const kv = kvConfig();
-  return kv ? { kind: "kv", detail: new URL(kv.url).host } : { kind: "files", detail: DATA_DIR };
+/** Какое хранилище используется — для страницы «Источники» и health-чека. */
+export function storageInfo(): { kind: "kv" | "redis" | "files"; detail: string } {
+  const s = store();
+  return s ? { kind: s.kind, detail: s.detail } : { kind: "files", detail: DATA_DIR };
 }
 
 async function readJson(file: string): Promise<Partial<ScoringConfig> | null> {
@@ -70,8 +107,9 @@ const withDefaults = (parsed: Partial<ScoringConfig>): ScoringConfig => ({
 });
 
 export async function loadConfig(product: ProductKey = DEFAULT_PRODUCT): Promise<ScoringConfig> {
-  if (kvConfig()) {
-    const raw = await kvGet(KV_PREFIX + product);
+  const s = store();
+  if (s) {
+    const raw = await s.get(KV_PREFIX + product);
     return raw ? withDefaults(JSON.parse(raw) as Partial<ScoringConfig>) : DEFAULT_SCORING_CONFIG;
   }
   const own = await readJson(configPath(product));
@@ -88,8 +126,9 @@ export async function loadAllConfigs(): Promise<Record<ProductKey, ScoringConfig
 
 export async function saveConfig(product: ProductKey, cfg: ScoringConfig): Promise<ScoringConfig> {
   const next = { ...cfg, updatedAt: new Date().toISOString() };
-  if (kvConfig()) {
-    await kvSet(KV_PREFIX + product, JSON.stringify(next));
+  const s = store();
+  if (s) {
+    await s.set(KV_PREFIX + product, JSON.stringify(next));
     return next;
   }
   await fs.mkdir(DATA_DIR, { recursive: true });
@@ -103,7 +142,7 @@ export async function resetConfig(product: ProductKey): Promise<ScoringConfig> {
 
 /** Сохраняет сырой ответ источника для отладки маппинга (только при файловом хранилище). */
 export async function cacheRaw(name: string, payload: unknown): Promise<void> {
-  if (kvConfig()) return;
+  if (store()) return;
   try {
     const dir = path.join(DATA_DIR, "cache");
     await fs.mkdir(dir, { recursive: true });
