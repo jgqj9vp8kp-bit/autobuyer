@@ -21,16 +21,18 @@ health check `/api/health`, переменные окружения. Регис�
 без телефона и карты.
 
 1. render.com → Sign up через GitHub, дать доступ к репозиторию `jgqj9vp8kp-bit/autobuyer`.
-2. Правила скоринга на бесплатном тарифе хранятся в Redis: upstash.com → Sign up (GitHub) → Create database
-   (Regional, Frankfurt, Free) → во вкладке REST API скопировать `UPSTASH_REDIS_REST_URL` и
-   `UPSTASH_REDIS_REST_TOKEN` — это значения для `KV_REST_API_URL` и `KV_REST_API_TOKEN`.
-3. Render Dashboard → New → Blueprint → выбрать репозиторий → Render прочитает `render.yaml` и спросит
-   секреты: `CAPSULED_API_KEY`, `POSTHOG_API_KEY` (из `.env.local`), `BASIC_AUTH_PASSWORD` (любой пароль),
-   `KV_REST_API_URL`, `KV_REST_API_TOKEN` (из Upstash). Остальное уже заполнено.
-4. Apply. Первая сборка 3–5 минут, адрес вида `https://autobuyer-….onrender.com`.
+2. Render Dashboard → New → Blueprint → выбрать репозиторий (или вставить публичный URL) → Render прочитает
+   `render.yaml` и спросит секреты: `CAPSULED_API_KEY`, `POSTHOG_API_KEY` (из `.env.local`),
+   `BASIC_AUTH_PASSWORD` (любой пароль). Остальное уже заполнено, включая бесплатный Key Value (Redis)
+   `autobuyer-kv` для правил скоринга: его адрес Render сам подставляет в `REDIS_URL`.
+3. Apply. Первая сборка 3–5 минут, адрес вида `https://autobuyer-….onrender.com`.
+4. Обновления: после push в `main` на странице Blueprint нажать «Manual sync» (без подключения GitHub
+   к Render автодеплоя нет).
 
-Ограничения free: сервис засыпает без трафика (первый запрос ~30–60 с), 512 МБ RAM. Платный Starter
-снимает сон, и тогда вместо Redis можно добавить диск 1 ГБ на `/data` (Settings → Disks) и убрать KV-переменные.
+Ограничения free: сервис засыпает без трафика (первый запрос ~30–60 с), 512 МБ RAM; у бесплатного Key Value
+нет персистентности на диск: при его перезапуске правила вернутся к значениям по умолчанию. Надёжнее —
+Upstash Redis (free, durable): задать `KV_REST_API_URL` и `KV_REST_API_TOKEN` в Environment, они имеют
+приоритет над `REDIS_URL`. Платный Starter снимает сон, и тогда можно вместо Redis добавить диск 1 ГБ на `/data`.
 
 Через API то же самое делается запросом `POST https://api.render.com/v1/services` с API-ключом
 (Account Settings → API Keys), если нужно автоматизировать.
