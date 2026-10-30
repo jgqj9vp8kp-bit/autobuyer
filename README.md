@@ -105,6 +105,9 @@ src/app/api/                  evaluate, campaigns/:id, config (GET/PUT/DELETE), 
 
 ## Деплой
 
+Прод: https://autobuyer.onrender.com (Render, free, Blueprint из публичного репозитория; вход — Basic Auth, логин `team`).
+Обновление: после push в `main` нажать Manual Deploy в панели Render (автодеплой недоступен без подключения GitHub).
+
 См. [DEPLOY.md](DEPLOY.md): Docker-образ (standalone), пароль через `BASIC_AUTH_PASSWORD`, том для `DATA_DIR`.
 
 ## Каналы трафика
