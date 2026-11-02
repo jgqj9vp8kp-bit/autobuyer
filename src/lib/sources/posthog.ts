@@ -198,3 +198,39 @@ LIMIT 10000`.trim();
   for (const rec of rowsToRecords(columns, results)) if (rec.campaign && rec.host) out.set(String(rec.campaign), String(rec.host));
   return out;
 }
+
+/**
+ * Уникальные пользователи одного шага воронки (обычно «trial») по кампаниям и дням.
+ * Нужно, чтобы дневные триалы совпадали с воронкой: дашборд FB даёт покупки по своей атрибуции.
+ * campaignId — ограничить одной кампанией (история скора).
+ */
+export async function fetchDailyStepCounts(
+  opts: PostHogOptions,
+  step: FunnelStepDef,
+  dateFrom: string,
+  dateTo: string,
+  campaignId?: string,
+): Promise<Map<string, Map<string, number>>> {
+  const campaignExpr = opts.campaignExpr ?? DEFAULT_CAMPAIGN_EXPR;
+  const query = `
+SELECT toString(${campaignExpr}) AS campaign,
+  toDate(timestamp) AS day,
+  countDistinct(person_id) AS n
+FROM events
+WHERE ${stepCondition(step)}
+  AND timestamp >= toDateTime('${dateFrom} 00:00:00')
+  AND timestamp <= toDateTime('${dateTo} 23:59:59')
+  AND campaign != ''${campaignId ? `\n  AND campaign = '${escapeStr(campaignId)}'` : ""}
+GROUP BY campaign, day
+LIMIT 100000`.trim();
+  const { columns, results } = await runQuery(opts, query);
+  const out = new Map<string, Map<string, number>>();
+  for (const rec of rowsToRecords(columns, results)) {
+    const c = String(rec.campaign ?? "");
+    if (!c) continue;
+    const m = out.get(c) ?? new Map<string, number>();
+    m.set(String(rec.day).slice(0, 10), Number(rec.n ?? 0));
+    out.set(c, m);
+  }
+  return out;
+}

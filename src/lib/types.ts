@@ -24,6 +24,8 @@ export interface DailyAdStats {
   clicks: number;
   purchases: number;
   revenue: number;
+  /** Покупки по атрибуции FB, если purchases заменены триалами из воронки PostHog */
+  fbPurchases?: number;
 }
 
 /** Нормализованная статистика рекламной кампании из дашборда. */
@@ -55,6 +57,10 @@ export interface AdCampaignStats {
   cpm: number;
   purchases: number;
   revenue: number;
+  /** Покупки по атрибуции FB-дашборда (fbPurchases); purchases может быть заменён триалами из воронки PostHog */
+  fbPurchases?: number;
+  /** Откуда взяты purchases и cpa: posthog — события оплаты в воронке, facebook — атрибуция FB */
+  trialsSource?: "posthog" | "facebook";
   cpa: number | null;
   roas: number | null;
   daily: DailyAdStats[];

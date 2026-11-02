@@ -11,6 +11,7 @@ import { loadConfig } from "@/lib/configStore";
 import { defaultRange, evaluateCached } from "@/lib/evaluate";
 import { bucketCpa } from "@/lib/benchmarks";
 import { CHANNEL_LABEL } from "@/lib/channels";
+import { trialsNote } from "@/lib/trials";
 import { addDaysIso, fmtDate, fmtMoney, fmtNum, fmtPct, fmtStatus } from "@/lib/format";
 import { scoreHistoryCached } from "@/lib/history";
 import { DEFAULT_PRODUCT, PRODUCT_LABEL, PRODUCT_SOURCE_LABEL } from "@/lib/products";
@@ -151,7 +152,7 @@ export default async function CampaignPage({
         </div>
         <div className="grid w-full grid-cols-2 gap-2 sm:w-auto sm:grid-cols-4">
           {stat("Расход", ad.statsSource === "posthog" ? "—" : fmtMoney(ad.spend), ad.statsSource === "posthog" ? `нет в дашборде · ${ad.trafficSource ?? "источник неизвестен"}` : undefined)}
-          {stat("Триалы", fmtNum(ad.purchases), `CPA ${fmtMoney(ad.cpa, 2)}`)}
+          {stat("Триалы", fmtNum(ad.purchases), `CPA ${fmtMoney(ad.cpa, 2)}${trialsNote(ad) ? ` · ${trialsNote(ad)}` : ""}`)}
           {stat("Визиты", fmtNum(funnel.visitors), `CTR ${ad.ctr.toFixed(2)}%`)}
           {stat("ROAS", ad.roas ? `${ad.roas.toFixed(2)}x` : "—", `выручка ${fmtMoney(ad.revenue)}`)}
         </div>

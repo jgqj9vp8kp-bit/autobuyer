@@ -7,7 +7,8 @@ import { computeFunnelMetrics } from "@/lib/scoring/funnel";
 import { scoreCampaign } from "@/lib/scoring/engine";
 import { fetchCampaignStats } from "@/lib/sources/capsuled";
 import { generateDemo } from "@/lib/sources/demo";
-import { fetchFunnelCounts } from "@/lib/sources/posthog";
+import { fetchDailyStepCounts, fetchFunnelCounts } from "@/lib/sources/posthog";
+import { applyFunnelTrials, keepFbTrials, MIN_VISITORS_FOR_FUNNEL_TRIALS, TRIAL_STEP_KEY, trialStepOf } from "@/lib/trials";
 import type { AdCampaignStats, CampaignEvaluation, EvaluationResponse, FunnelCounts, ProductKey, SourceStatus } from "@/lib/types";
 
 /**
@@ -47,11 +48,14 @@ export async function evaluateCampaigns(dateFrom: string, dateTo: string): Promi
   let campaigns: AdCampaignStats[] | null = null;
   let funnels: FunnelCounts[] | null = null;
   const funnelsByProduct: Partial<Record<ProductKey, FunnelCounts[]>> = {};
+  // Триалы из воронки по дням (ключ — определение шага trial, обычно одно на все продукты)
+  const dailyTrialsByStep = new Map<string, Map<string, Map<string, number>>>();
+  const trialStepKey = (p: ProductKey) => JSON.stringify(trialStepOf(configs[p]) ?? null);
 
   // Бенчмарки сегментов за 60 дней — параллельно с основными запросами; при ошибке просто без них
   const srcCfg = sourcesConfig();
   const benchPromise: Promise<BenchmarkSet | null> = srcCfg.live
-    ? getBenchmarks({ capsuled: srcCfg.capsuled, posthog: srcCfg.posthog }, dateTo, (p) => configs[p ?? DEFAULT_PRODUCT].targetCpa).catch(() => null)
+    ? getBenchmarks({ capsuled: srcCfg.capsuled, posthog: srcCfg.posthog }, dateTo, (p) => configs[p ?? DEFAULT_PRODUCT].targetCpa, trialStepOf(cfg)).catch(() => null)
     : Promise.resolve(null);
 
   if (isLiveMode()) {
@@ -89,7 +93,13 @@ export async function evaluateCampaigns(dateFrom: string, dateTo: string): Promi
           const k = JSON.stringify(configs[p].funnel);
           byDef.set(k, [...(byDef.get(k) ?? []), p]);
         }
+        // Дневные триалы — тем же источником, что и воронка; ошибка не критична (останутся дневные покупки FB)
+        const trialSteps = new Map(PRODUCT_KEYS.map((p) => [trialStepKey(p), trialStepOf(configs[p])] as const));
+        const dailyPromise = Promise.all(
+          [...trialSteps].filter(([, step]) => step).map(async ([k, step]) => [k, await fetchDailyStepCounts(opts, step!, dateFrom, dateTo).catch(() => null)] as const),
+        );
         const results = await Promise.all([...byDef.values()].map(async (ps) => [ps, await fetchFunnelCounts(opts, configs[ps[0]].funnel, dateFrom, dateTo)] as const));
+        for (const [k, m] of await dailyPromise) if (m) dailyTrialsByStep.set(k, m);
         const merged = new Map<string, FunnelCounts>();
         for (const [ps, list] of results) {
           for (const p of ps) funnelsByProduct[p] = list;
@@ -148,13 +158,23 @@ export async function evaluateCampaigns(dateFrom: string, dateTo: string): Promi
     const list = funnelsByProduct[p];
     if (list) byProduct.set(p, new Map(list.map((f) => [f.campaignId, f])));
   }
-  const evaluated: CampaignEvaluation[] = campaigns.map((ad) => {
-    const anyCounts = funnelById.get(ad.campaignId);
+  const evaluated: CampaignEvaluation[] = campaigns.map((rawAd) => {
+    const anyCounts = funnelById.get(rawAd.campaignId);
     // Продукт — по домену воронки из PostHog, иначе по названию кампании/аккаунта; правила берём его
-    const { product, source: productSource } = detectProduct(ad, anyCounts?.host);
-    const pcfg = configs[product ?? DEFAULT_PRODUCT];
-    const counts = (product && byProduct.get(product)?.get(ad.campaignId)) || anyCounts;
+    const { product, source: productSource } = detectProduct(rawAd, anyCounts?.host);
+    const pkey = product ?? DEFAULT_PRODUCT;
+    const pcfg = configs[pkey];
+    const counts = (product && byProduct.get(product)?.get(rawAd.campaignId)) || anyCounts;
     const funnel = computeFunnelMetrics(counts, pcfg.funnel);
+    // Единый источник триалов: воронка PostHog, если трекинг кампании там есть; иначе атрибуция FB
+    const funnelTrials = funnel.steps.find((s) => s.key === TRIAL_STEP_KEY)?.count;
+    let ad = rawAd;
+    if (rawAd.statsSource === "capsuled") {
+      ad =
+        funnelTrials !== undefined && funnel.visitors >= MIN_VISITORS_FOR_FUNNEL_TRIALS
+          ? applyFunnelTrials(rawAd, funnelTrials, dailyTrialsByStep.get(trialStepKey(pkey))?.get(rawAd.campaignId) ?? (dailyTrialsByStep.has(trialStepKey(pkey)) ? new Map() : undefined))
+          : keepFbTrials(rawAd);
+    }
     const segment = srcCfg.live ? segmentInfoFor(bench, ad.campaignId, product, ad.geo ?? null, dateTo, pcfg.earlyStage ?? DEFAULT_EARLY_STAGE, pcfg.targetCpa) : null;
     const score = scoreCampaign(ad, funnel, pcfg, { segment });
     if (ad.statsSource === "posthog") {
@@ -183,6 +203,7 @@ function campaignFromFunnel(f: FunnelCounts, dateFrom: string, dateTo: string): 
     buyer: undefined,
     status: "UNKNOWN",
     statsSource: "posthog",
+    trialsSource: "posthog",
     trafficSource,
     utmSource: f.utmSource,
     geo: undefined,

@@ -4,7 +4,8 @@ import { computeFunnelMetrics } from "@/lib/scoring/funnel";
 import { scoreCampaign } from "@/lib/scoring/engine";
 import { fetchCampaignStats } from "@/lib/sources/capsuled";
 import { generateDemo } from "@/lib/sources/demo";
-import { fetchFunnelHistory, type FunnelWindow } from "@/lib/sources/posthog";
+import { fetchDailyStepCounts, fetchFunnelHistory, type FunnelWindow } from "@/lib/sources/posthog";
+import { MIN_VISITORS_FOR_FUNNEL_TRIALS, TRIAL_STEP_KEY, trialStepOf } from "@/lib/trials";
 import { DEFAULT_PRODUCT } from "@/lib/products";
 import type { AdCampaignStats, DailyAdStats, ProductKey, Verdict } from "@/lib/types";
 
@@ -94,9 +95,18 @@ export async function scoreHistory(ad: AdCampaignStats, dateTo: string, days = 1
     }
     if (src.posthog) {
       try {
-        const rows: FunnelWindow[] = await fetchFunnelHistory(src.posthog, cfg.funnel, ad.campaignId, dateFrom, dateTo, windowDays);
+        const step = trialStepOf(cfg);
+        const [rows, perDay] = await Promise.all([
+          fetchFunnelHistory(src.posthog, cfg.funnel, ad.campaignId, dateFrom, dateTo, windowDays) as Promise<FunnelWindow[]>,
+          step ? fetchDailyStepCounts(src.posthog, step, rawFrom, dateTo, ad.campaignId).catch(() => null) : Promise.resolve(null),
+        ]);
         windows = new Map(rows.map((r) => [r.day, r.steps]));
         source = "posthog";
+        // Дневные триалы — из воронки, как и на остальной странице (тренд CPA внутри окна)
+        if (perDay && ad.trialsSource !== "facebook") {
+          const m = perDay.get(ad.campaignId) ?? new Map<string, number>();
+          daily = daily.map((d) => ({ ...d, fbPurchases: d.fbPurchases ?? d.purchases, purchases: m.get(d.date) ?? 0 }));
+        }
       } catch (e) {
         note = `PostHog: ${(e as Error).message}`;
       }
@@ -125,7 +135,12 @@ export async function scoreHistory(ad: AdCampaignStats, dateTo: string, days = 1
     const from = addDays(day, -(windowDays - 1));
     const steps = windows?.get(day);
     const funnel = computeFunnelMetrics(steps ? { campaignId: ad.campaignId, steps } : undefined, cfg.funnel);
-    const adW = adWindow(ad, daily, from, day);
+    let adW = adWindow(ad, daily, from, day);
+    // Триалы окна — ровно как в воронке окна (уникальные пользователи), CPA от них же
+    const windowTrials = funnel.steps.find((s) => s.key === TRIAL_STEP_KEY)?.count;
+    if (source === "posthog" && ad.trialsSource !== "facebook" && windowTrials !== undefined && funnel.visitors >= MIN_VISITORS_FOR_FUNNEL_TRIALS) {
+      adW = { ...adW, purchases: windowTrials, cpa: windowTrials > 0 && adW.spend > 0 ? adW.spend / windowTrials : null };
+    }
     const score = scoreCampaign(adW, funnel, cfg);
     points.push({
       day,

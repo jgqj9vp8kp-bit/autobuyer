@@ -1,8 +1,10 @@
 import { addDaysIso } from "@/lib/format";
 import { detectProduct, PRODUCT_LABEL } from "@/lib/products";
 import { extractRows, fetchCampaignStats, mapCapsuledRows, type CapsuledOptions } from "@/lib/sources/capsuled";
-import { fetchCampaignHosts, type PostHogOptions } from "@/lib/sources/posthog";
-import type { AdCampaignStats, DayBucket, EarlyStageRule, ProductKey, SegmentBenchmark, SegmentInfo } from "@/lib/types";
+import { DEFAULT_SCORING_CONFIG } from "@/lib/scoring/defaultConfig";
+import { fetchCampaignHosts, fetchDailyStepCounts, type PostHogOptions } from "@/lib/sources/posthog";
+import { applyFunnelTrials, trialStepOf } from "@/lib/trials";
+import type { AdCampaignStats, DayBucket, EarlyStageRule, FunnelStepDef, ProductKey, SegmentBenchmark, SegmentInfo } from "@/lib/types";
 
 /**
  * Бенчмарки сегментов: стоимость триала по продукту × гео (по таргетингу) в разрезе дня жизни кампании.
@@ -98,22 +100,33 @@ export function computeBenchmarks(
 let cache: { at: number; key: string; value: BenchmarkSet } | null = null;
 const TTL = 60 * 60 * 1000;
 
-/** Бенчмарки за 60 дней до dateTo: два запроса к дашборду (по 30 дней) + домены воронок из PostHog. Кеш на час. */
+/**
+ * Бенчмарки за 60 дней до dateTo: два запроса к дашборду (по 30 дней) + домены воронок и дневные триалы
+ * из PostHog. Триалы — из воронки (как CPA кампаний), для кампаний без трекинга в PostHog — по FB. Кеш на час.
+ */
 export async function getBenchmarks(
   src: { capsuled: CapsuledOptions | null; posthog: PostHogOptions | null },
   dateTo: string,
   targetCpaOf: (p: ProductKey | null) => number,
+  trialStep: FunnelStepDef | undefined = trialStepOf(DEFAULT_SCORING_CONFIG),
 ): Promise<BenchmarkSet | null> {
   if (!src.capsuled) return null;
   if (cache && cache.key === dateTo && Date.now() - cache.at < TTL) return cache.value;
   const windowFrom = addDaysIso(dateTo, -(BENCHMARK_WINDOW_DAYS - 1));
   const mid = addDaysIso(dateTo, -29);
-  const [a, b, hosts] = await Promise.all([
+  const [a, b, hosts, dailyTrials] = await Promise.all([
     fetchCampaignStats(src.capsuled, windowFrom, addDaysIso(mid, -1)),
     fetchCampaignStats(src.capsuled, mid, dateTo),
     src.posthog ? fetchCampaignHosts(src.posthog, windowFrom, dateTo).catch(() => new Map<string, string>()) : Promise.resolve(new Map<string, string>()),
+    src.posthog && trialStep ? fetchDailyStepCounts(src.posthog, trialStep, windowFrom, dateTo).catch(() => null) : Promise.resolve(null),
   ]);
-  const campaigns = mapCapsuledRows([...extractRows(a.raw), ...extractRows(b.raw)]);
+  // Кампания «отслеживается» в PostHog, если у неё есть экраны воронки за окно; тогда 0 триалов — это настоящий ноль
+  const campaigns = mapCapsuledRows([...extractRows(a.raw), ...extractRows(b.raw)]).map((c) => {
+    if (!dailyTrials || !hosts.has(c.campaignId)) return c;
+    const perDay = dailyTrials.get(c.campaignId) ?? new Map<string, number>();
+    const total = c.daily.reduce((s, d) => s + (perDay.get(d.date) ?? 0), 0);
+    return applyFunnelTrials(c, total, perDay);
+  });
   const productOf = (c: AdCampaignStats) => detectProduct(c, hosts.get(c.campaignId)).product;
   const value = computeBenchmarks(campaigns, productOf, windowFrom, dateTo, targetCpaOf);
   cache = { at: Date.now(), key: dateTo, value };

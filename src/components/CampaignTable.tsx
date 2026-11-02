@@ -8,6 +8,7 @@ import type { CampaignEvaluation, Verdict } from "@/lib/types";
 import { fmtDate, fmtMoney, fmtNum, fmtPct, fmtStatus } from "@/lib/format";
 import { ScoreBadge, VerdictPill } from "@/components/ui";
 import { PRODUCT_LABEL } from "@/lib/products";
+import { trialsNote } from "@/lib/trials";
 import { VERDICT_META } from "@/lib/verdict";
 
 type SortKey = "score" | "spend" | "purchases" | "cpa" | "trialCr" | "paywallCr" | "visitors";
@@ -211,7 +212,12 @@ export function CampaignTable({ rows, linkQuery }: { rows: CampaignEvaluation[];
                     )}
                   </td>
                   <td className="text-right tabular-nums">{fmtNum(r.funnel.visitors)}</td>
-                  <td className="text-right tabular-nums">{fmtNum(r.ad.purchases)}</td>
+                  <td className="text-right tabular-nums" title={trialsNote(r.ad) ?? "по воронке PostHog, совпадает с FB-дашбордом"}>
+                    {fmtNum(r.ad.purchases)}
+                    {r.ad.trialsSource === "posthog" && r.ad.fbPurchases !== undefined && r.ad.fbPurchases !== r.ad.purchases && (
+                      <span className="ml-1 text-[10px] text-muted">FB {r.ad.fbPurchases}</span>
+                    )}
+                  </td>
                   <td className="text-right tabular-nums">{fmtMoney(r.ad.cpa, 2)}</td>
                   <td className="text-right tabular-nums">{fmtPct(r.funnel.trialCr, 2)}</td>
                   <td className="text-right tabular-nums">{fmtPct(r.funnel.paywallCr)}</td>

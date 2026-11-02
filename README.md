@@ -61,7 +61,10 @@ src/app/api/                  evaluate, campaigns/:id, config (GET/PUT/DELETE), 
 **Дашборд баеров** — `GET {CAPSULED_API_URL}/fb-stats?dateFrom&dateTo&level=campaign&includeDaily=true&includeInactive=true&limit=10000`,
 `Authorization: Bearer <key>`. При `includeDaily=true` каждая строка `rows[]` — одна кампания за один день
 (`date, campaignId, campaignName, buyer, adAccountId, adAccountName, spend, fbPurchases, impressions, clicks, reach, …`);
-`capsuled.ts` агрегирует их по `campaignId` в сводку + `daily[]`. Покупки берутся из `fbPurchases` (канонические покупки Meta).
+`capsuled.ts` агрегирует их по `campaignId` в сводку + `daily[]`. Покупки FB (`fbPurchases`) сохраняются, но **триалы и CPA
+везде считаются по воронке PostHog** (`funnel_purchase_success`, уникальные пользователи): иначе на одной странице
+расходились бы «триалы» дашборда и шаг «Оплата» воронки (FB считает по своей атрибуции и в часовом поясе аккаунта).
+Если у кампании меньше 10 визитов в PostHog (трекинг не настроен), остаются покупки FB. Логика — `src/lib/trials.ts`.
 Гео по таргетингу приходит в `geoCountries: ["JP"]` (страны из targeting адсетов), несколько стран показываются как «CO, MX»; в таблице есть фильтр по гео.
 Статуса кампании в API нет: «активная» = есть показы или расход за последний день, по которому у дашборда вообще есть данные; «неактивная» = открутка была раньше в периоде, но не в этот день.
 Сырой ответ последнего запроса сохраняется в `data/cache/capsuled-last.json`.
