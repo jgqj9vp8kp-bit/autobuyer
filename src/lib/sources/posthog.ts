@@ -234,3 +234,22 @@ LIMIT 100000`.trim();
   }
   return out;
 }
+
+/** Первый день, когда кампания встретилась в воронке (для кампаний вне FB-дашборда). */
+export async function fetchCampaignFirstSeen(opts: PostHogOptions, dateFrom: string, dateTo: string): Promise<Map<string, string>> {
+  const campaignExpr = opts.campaignExpr ?? DEFAULT_CAMPAIGN_EXPR;
+  const query = `
+SELECT toString(${campaignExpr}) AS campaign,
+  min(toDate(timestamp)) AS first_day
+FROM events
+WHERE event = 'funnel_screen_open'
+  AND timestamp >= toDateTime('${dateFrom} 00:00:00')
+  AND timestamp <= toDateTime('${dateTo} 23:59:59')
+  AND campaign != ''
+GROUP BY campaign
+LIMIT 20000`.trim();
+  const { columns, results } = await runQuery(opts, query);
+  const out = new Map<string, string>();
+  for (const rec of rowsToRecords(columns, results)) if (rec.campaign && rec.first_day) out.set(String(rec.campaign), String(rec.first_day).slice(0, 10));
+  return out;
+}

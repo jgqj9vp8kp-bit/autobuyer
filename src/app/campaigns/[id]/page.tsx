@@ -12,7 +12,7 @@ import { defaultRange, evaluateCached } from "@/lib/evaluate";
 import { bucketCpa } from "@/lib/benchmarks";
 import { CHANNEL_LABEL } from "@/lib/channels";
 import { trialsNote } from "@/lib/trials";
-import { addDaysIso, fmtDate, fmtMoney, fmtNum, fmtPct, fmtStatus } from "@/lib/format";
+import { addDaysIso, fmtDate, fmtMoney, fmtNum, fmtPct, fmtStart, fmtStatus } from "@/lib/format";
 import { scoreHistoryCached } from "@/lib/history";
 import { DEFAULT_PRODUCT, PRODUCT_LABEL, PRODUCT_SOURCE_LABEL } from "@/lib/products";
 import { VERDICT_META } from "@/lib/verdict";
@@ -150,7 +150,8 @@ export default async function CampaignPage({
             ))}
           </ul>
         </div>
-        <div className="grid w-full grid-cols-2 gap-2 sm:w-auto sm:grid-cols-4">
+        <div className="grid w-full grid-cols-2 gap-2 sm:w-auto sm:grid-cols-3 xl:grid-cols-5">
+          {stat("Старт", fmtStart(ad), ad.startDate ? `${ad.ageDays !== undefined ? `день ${ad.ageDays} · ` : ""}${ad.startSource === "posthog" ? "первый визит" : "первая открутка"}` : "нет данных")}
           {stat("Расход", ad.statsSource === "posthog" ? "—" : fmtMoney(ad.spend), ad.statsSource === "posthog" ? `нет в дашборде · ${ad.trafficSource ?? "источник неизвестен"}` : undefined)}
           {stat("Триалы", fmtNum(ad.purchases), `CPA ${fmtMoney(ad.cpa, 2)}${trialsNote(ad) ? ` · ${trialsNote(ad)}` : ""}`)}
           {stat("Визиты", fmtNum(funnel.visitors), `CTR ${ad.ctr.toFixed(2)}%`)}

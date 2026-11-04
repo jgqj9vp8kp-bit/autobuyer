@@ -1,4 +1,5 @@
 import { BENCHMARK_WINDOW_DAYS, getBenchmarks, segmentInfoFor, type BenchmarkSet } from "@/lib/benchmarks";
+import { getCampaignStarts, resolveCampaignStart, type CampaignStartIndex } from "@/lib/campaignStarts";
 import { channelOf, trafficSourceLabel } from "@/lib/channels";
 import { cacheRaw, loadAllConfigs } from "@/lib/configStore";
 import { DEFAULT_PRODUCT, detectProduct, PRODUCT_KEYS } from "@/lib/products";
@@ -56,6 +57,10 @@ export async function evaluateCampaigns(dateFrom: string, dateTo: string): Promi
   const srcCfg = sourcesConfig();
   const benchPromise: Promise<BenchmarkSet | null> = srcCfg.live
     ? getBenchmarks({ capsuled: srcCfg.capsuled, posthog: srcCfg.posthog }, dateTo, (p) => configs[p ?? DEFAULT_PRODUCT].targetCpa, trialStepOf(cfg)).catch(() => null)
+    : Promise.resolve(null);
+  // Даты старта по всей истории дашборда — тоже параллельно; без них дата будет только верхней границей
+  const startsPromise: Promise<CampaignStartIndex | null> = srcCfg.live
+    ? getCampaignStarts({ capsuled: srcCfg.capsuled, posthog: srcCfg.posthog }, new Date().toISOString().slice(0, 10)).catch(() => null)
     : Promise.resolve(null);
 
   if (isLiveMode()) {
@@ -147,6 +152,7 @@ export async function evaluateCampaigns(dateFrom: string, dateTo: string): Promi
   }
 
   const bench = await benchPromise;
+  const starts = await startsPromise;
   if (srcCfg.live) {
     const cap = sources.find((s) => s.source === "capsuled");
     if (cap?.ok) cap.message += bench ? `; бенчмарки сегментов за ${BENCHMARK_WINDOW_DAYS} дн.: ${Object.values(bench.segments).filter((g) => g.geo !== "*").length}` : "; бенчмарки сегментов недоступны";
@@ -168,14 +174,17 @@ export async function evaluateCampaigns(dateFrom: string, dateTo: string): Promi
     const funnel = computeFunnelMetrics(counts, pcfg.funnel);
     // Единый источник триалов: воронка PostHog, если трекинг кампании там есть; иначе атрибуция FB
     const funnelTrials = funnel.steps.find((s) => s.key === TRIAL_STEP_KEY)?.count;
-    let ad = rawAd;
+    const dated: AdCampaignStats = { ...rawAd, ...resolveCampaignStart(rawAd, starts, bench?.launches[rawAd.campaignId]?.first, dateTo) };
+    let ad = dated;
     if (rawAd.statsSource === "capsuled") {
       ad =
         funnelTrials !== undefined && funnel.visitors >= MIN_VISITORS_FOR_FUNNEL_TRIALS
-          ? applyFunnelTrials(rawAd, funnelTrials, dailyTrialsByStep.get(trialStepKey(pkey))?.get(rawAd.campaignId) ?? (dailyTrialsByStep.has(trialStepKey(pkey)) ? new Map() : undefined))
-          : keepFbTrials(rawAd);
+          ? applyFunnelTrials(dated, funnelTrials, dailyTrialsByStep.get(trialStepKey(pkey))?.get(rawAd.campaignId) ?? (dailyTrialsByStep.has(trialStepKey(pkey)) ? new Map() : undefined))
+          : keepFbTrials(dated);
     }
-    const segment = srcCfg.live ? segmentInfoFor(bench, ad.campaignId, product, ad.geo ?? null, dateTo, pcfg.earlyStage ?? DEFAULT_EARLY_STAGE, pcfg.targetCpa) : null;
+    // Возраст для правила ранней стадии — только по открутке FB: бенчмарки считаются по Facebook
+    const exactStart = ad.startSource === "dashboard" && !ad.startApprox ? ad.startDate : undefined;
+    const segment = srcCfg.live ? segmentInfoFor(bench, ad.campaignId, product, ad.geo ?? null, dateTo, pcfg.earlyStage ?? DEFAULT_EARLY_STAGE, pcfg.targetCpa, exactStart) : null;
     const score = scoreCampaign(ad, funnel, pcfg, { segment });
     if (ad.statsSource === "posthog") {
       const fbLike = /^\d{12,}$/.test(ad.campaignId);

@@ -23,6 +23,9 @@ export const fmtDate = (iso: string) => {
   return d.toLocaleDateString("ru-RU", { day: "2-digit", month: "short" });
 };
 
+/** Дата старта кампании; «до …», если настоящий старт мог быть раньше начала истории источника. */
+export const fmtStart = (ad: Pick<AdCampaignStats, "startDate" | "startApprox">) => (ad.startDate ? `${ad.startApprox ? "до " : ""}${fmtDate(ad.startDate)}` : "—");
+
 /** Человекочитаемый статус кампании (у дашборда своего статуса нет, он выводится по открутке). */
 export function fmtStatus(ad: Pick<AdCampaignStats, "status" | "lastActiveDate">): string {
   const last = ad.lastActiveDate ? fmtDate(ad.lastActiveDate) : null;

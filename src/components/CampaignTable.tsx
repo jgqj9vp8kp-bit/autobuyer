@@ -5,13 +5,13 @@ import { useMemo, useState } from "react";
 import clsx from "clsx";
 import { ArrowDown, ArrowUp, ChevronRight, Search } from "lucide-react";
 import type { CampaignEvaluation, Verdict } from "@/lib/types";
-import { fmtDate, fmtMoney, fmtNum, fmtPct, fmtStatus } from "@/lib/format";
+import { fmtDate, fmtMoney, fmtNum, fmtPct, fmtStart, fmtStatus } from "@/lib/format";
 import { ScoreBadge, VerdictPill } from "@/components/ui";
 import { PRODUCT_LABEL } from "@/lib/products";
 import { trialsNote } from "@/lib/trials";
 import { VERDICT_META } from "@/lib/verdict";
 
-type SortKey = "score" | "spend" | "purchases" | "cpa" | "trialCr" | "paywallCr" | "visitors";
+type SortKey = "score" | "start" | "spend" | "purchases" | "cpa" | "trialCr" | "paywallCr" | "visitors";
 type StatusFilter = "all" | "active" | "inactive";
 
 /** Статусы «не крутится» (UNKNOWN сюда не входит: по таким кампаниям нет данных дашборда) */
@@ -49,6 +49,8 @@ export function CampaignTable({ rows, linkQuery }: { rows: CampaignEvaluation[];
           return r.funnel.trialCr ?? -1;
         case "paywallCr":
           return r.funnel.paywallCr ?? -1;
+        case "start":
+          return r.ad.startDate ? Date.parse(r.ad.startDate) : 0;
         case "visitors":
           return r.funnel.visitors;
       }
@@ -159,6 +161,7 @@ export function CampaignTable({ rows, linkQuery }: { rows: CampaignEvaluation[];
               <Th k="score">Скор</Th>
               <th>Кампания</th>
               <th>Вердикт</th>
+              <Th k="start">Старт</Th>
               <Th k="spend" className="text-right">
                 Расход
               </Th>
@@ -202,6 +205,13 @@ export function CampaignTable({ rows, linkQuery }: { rows: CampaignEvaluation[];
                   <td>
                     <VerdictPill verdict={r.score.verdict} />
                   </td>
+                  <td
+                    className="whitespace-nowrap text-xs"
+                    title={r.ad.startDate ? `${r.ad.startSource === "posthog" ? "Первый визит в воронку" : "Первый день открутки"}${r.ad.startApprox ? ": настоящий старт мог быть раньше, история источника начинается с этой даты" : ""}` : "Дата старта неизвестна"}
+                  >
+                    <div className="font-medium">{fmtStart(r.ad)}</div>
+                    {r.ad.ageDays !== undefined && <div className="text-[11px] text-muted">{r.ad.ageDays} дн.</div>}
+                  </td>
                   <td className="text-right tabular-nums">
                     {r.ad.statsSource === "posthog" ? (
                       <span className="text-muted" title={`Расхода нет: ${/^\d{12,}$/.test(r.ad.campaignId) ? "в FB-дашборде нет строк по кампании за период" : `трафик не из FB (${r.ad.trafficSource ?? "источник неизвестен"})`}`}>
@@ -232,7 +242,7 @@ export function CampaignTable({ rows, linkQuery }: { rows: CampaignEvaluation[];
             })}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={11} className="py-10 text-center text-sm text-muted">
+                <td colSpan={12} className="py-10 text-center text-sm text-muted">
                   Ничего не найдено
                 </td>
               </tr>

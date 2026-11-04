@@ -138,10 +138,11 @@ export function invalidateBenchmarks() {
 }
 
 /** Положение кампании в сегменте: возраст, подходящий бенчмарк и применимость правила ранней стадии. */
-export function segmentInfoFor(set: BenchmarkSet | null, campaignId: string, product: ProductKey | null, geo: string | null, dateTo: string, rule: EarlyStageRule, targetCpa: number): SegmentInfo {
+export function segmentInfoFor(set: BenchmarkSet | null, campaignId: string, product: ProductKey | null, geo: string | null, dateTo: string, rule: EarlyStageRule, targetCpa: number, startDate?: string): SegmentInfo {
   const label = segmentLabel(product, geo);
   const launch = set?.launches[campaignId];
-  const ageDays = !launch ? null : launch.startedBefore ? 999 : daysBetween(launch.first, dateTo) + 1;
+  // startDate — настоящий старт по всей истории; без него возраст известен только в окне бенчмарков
+  const ageDays = startDate ? daysBetween(startDate, dateTo) + 1 : !launch ? null : launch.startedBefore ? 999 : daysBetween(launch.first, dateTo) + 1;
 
   let benchmark: SegmentBenchmark | null = null;
   let benchmarkLevel: SegmentInfo["benchmarkLevel"] = null;
@@ -172,5 +173,5 @@ export function segmentInfoFor(set: BenchmarkSet | null, campaignId: string, pro
       if (dayBucket && dayBucket.trials >= rule.minSegmentTrials) earlyNormCpa = bucketCpa(dayBucket);
     }
   }
-  return { product, geo, label, ageDays, firstDeliveryDate: launch?.first, benchmark, benchmarkLevel, earlyStage, earlyNormCpa };
+  return { product, geo, label, ageDays, firstDeliveryDate: startDate ?? launch?.first, benchmark, benchmarkLevel, earlyStage, earlyNormCpa };
 }

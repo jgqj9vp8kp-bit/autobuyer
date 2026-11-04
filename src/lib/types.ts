@@ -39,6 +39,13 @@ export interface AdCampaignStats {
   status: "ACTIVE" | "INACTIVE" | "PAUSED" | "ARCHIVED" | "UNKNOWN";
   /** Последний день с показами или расходом (YYYY-MM-DD) */
   lastActiveDate?: string;
+  /** Дата старта: первый день открутки (dashboard) или первый визит в воронку (posthog) */
+  startDate?: string;
+  startSource?: "dashboard" | "posthog";
+  /** Дата совпала с началом истории источника: настоящий старт мог быть раньше */
+  startApprox?: boolean;
+  /** День жизни кампании на конец периода (день старта = 1) */
+  ageDays?: number;
   /** Откуда рекламная статистика: capsuled — из дашборда; posthog — кампания собрана только из воронки (расхода нет) */
   statsSource?: "capsuled" | "posthog" | "demo";
   /** Источник трафика по utm_source (для кампаний без данных дашборда): «Google Ads», «TikTok»… */
