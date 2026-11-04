@@ -253,3 +253,41 @@ LIMIT 20000`.trim();
   for (const rec of rowsToRecords(columns, results)) if (rec.campaign && rec.first_day) out.set(String(rec.campaign), String(rec.first_day).slice(0, 10));
   return out;
 }
+
+export interface ScreenCount {
+  /** screen_id в нижнем регистре: так сравниваются шаги воронки */
+  screen: string;
+  label: string;
+  users: number;
+  index: number;
+}
+
+/**
+ * Уникальные люди на каждом экране кампании в порядке screen_index.
+ * Сценарий отмены подписки (funnel_alias cancel-*) не часть воронки: туда попадают уже платящие.
+ */
+export async function fetchCampaignScreens(opts: PostHogOptions, campaignId: string, dateFrom: string, dateTo: string): Promise<ScreenCount[]> {
+  const campaignExpr = opts.campaignExpr ?? DEFAULT_CAMPAIGN_EXPR;
+  const query = `
+SELECT lower(toString(properties.screen_id)) AS screen,
+  any(toString(properties.screen_id)) AS label,
+  countDistinct(person_id) AS users,
+  quantile(0.5)(toFloat(properties.screen_index)) AS idx
+FROM events
+WHERE event = 'funnel_screen_open'
+  AND timestamp >= toDateTime('${dateFrom} 00:00:00')
+  AND timestamp <= toDateTime('${dateTo} 23:59:59')
+  AND ${campaignExpr} = '${escapeStr(campaignId)}'
+  AND lower(toString(properties.funnel_alias)) NOT LIKE '%cancel%'
+  AND screen != ''
+GROUP BY screen
+ORDER BY idx ASC, users DESC
+LIMIT 200`.trim();
+  const { columns, results } = await runQuery(opts, query);
+  return rowsToRecords(columns, results).map((rec) => ({
+    screen: String(rec.screen),
+    label: String(rec.label ?? rec.screen),
+    users: Number(rec.users ?? 0),
+    index: Number(rec.idx ?? 9999),
+  }));
+}

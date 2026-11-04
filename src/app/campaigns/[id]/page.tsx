@@ -6,6 +6,7 @@ import { DateRange } from "@/components/DateRange";
 import { FunnelBars } from "@/components/FunnelBars";
 import { ScoreRing } from "@/components/ScoreRing";
 import { ScoreHistoryChart } from "@/components/ScoreHistoryChart";
+import { ScreenFlowChart } from "@/components/ScreenFlowChart";
 import { Card, Kicker, VerdictPill } from "@/components/ui";
 import { loadConfig } from "@/lib/configStore";
 import { defaultRange, evaluateCached } from "@/lib/evaluate";
@@ -14,6 +15,7 @@ import { CHANNEL_LABEL } from "@/lib/channels";
 import { trialsNote } from "@/lib/trials";
 import { addDaysIso, fmtDate, fmtMoney, fmtNum, fmtPct, fmtStart, fmtStatus } from "@/lib/format";
 import { scoreHistoryCached } from "@/lib/history";
+import { biggestDropBeforePaywall, buildScreenFlow, campaignScreensCached } from "@/lib/screenFlow";
 import { DEFAULT_PRODUCT, PRODUCT_LABEL, PRODUCT_SOURCE_LABEL } from "@/lib/products";
 import { VERDICT_META } from "@/lib/verdict";
 import clsx from "clsx";
@@ -92,7 +94,8 @@ export default async function CampaignPage({
   const segment = row.segment ?? null;
   const es = { maxAgeDays: 3 };
   const meta = VERDICT_META[score.verdict];
-  const [history, cfg] = await Promise.all([scoreHistoryCached(ad, to, histDays, 7, product), loadConfig(product ?? DEFAULT_PRODUCT)]);
+  const [history, cfg, screenRows] = await Promise.all([scoreHistoryCached(ad, to, histDays, 7, product), loadConfig(product ?? DEFAULT_PRODUCT), campaignScreensCached(ad.campaignId, from, to)]);
+  const screenFlow = buildScreenFlow(screenRows, cfg.funnel);
   const backQuery = `from=${from}&to=${to}&channel=${sp.channel ?? row.channel}${sp.product ? `&product=${sp.product}` : ""}`;
   const scored = history.points.filter((p) => p.verdict !== "NO_DATA");
   const first = scored[0];
@@ -239,7 +242,7 @@ export default async function CampaignPage({
       </Card>
 
       <div className="grid gap-6 lg:grid-cols-[1.1fr_1fr]">
-        <Card>
+        <Card className="min-w-0">
           <div className="mb-4 flex items-center justify-between">
             <div>
               <Kicker>Воронка продукта · PostHog</Kicker>
@@ -249,7 +252,11 @@ export default async function CampaignPage({
               визит → триал <span className="font-semibold text-ink">{fmtPct(funnel.trialCr, 2)}</span>
             </div>
           </div>
-          <FunnelBars funnel={funnel} />
+          <div className="scrollbar-thin overflow-x-auto">
+            <div className="min-w-[440px]">
+              <FunnelBars funnel={funnel} />
+            </div>
+          </div>
           <div className="mt-4 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
             {[
               ["CR 1-го экрана", fmtPct(funnel.firstScreenCr)],
@@ -263,6 +270,7 @@ export default async function CampaignPage({
               </div>
             ))}
           </div>
+          {screenFlow.length > 1 && <ScreenFlowChart points={screenFlow} drop={biggestDropBeforePaywall(screenFlow)} />}
         </Card>
 
         <Card>
