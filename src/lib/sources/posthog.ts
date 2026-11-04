@@ -37,6 +37,9 @@ const ident = (s: string) => s.replace(/[^a-zA-Z0-9_]/g, "_");
  */
 export const DEFAULT_CAMPAIGN_EXPR = "coalesce(nullIf(toString(properties.utm_campaign), ''), nullIf(toString(person.properties.$initial_utm_campaign), ''), '')";
 
+/** Привязка события к адсету: id адсета лежит в utm_term */
+export const ADSET_EXPR = "coalesce(nullIf(toString(properties.utm_term), ''), nullIf(toString(person.properties.$initial_utm_term), ''), '')";
+
 /**
  * Условие по свойству шага: без учёта регистра, несколько значений через `|`,
  * префикс `!` инвертирует ("!intro|intro_soulmate" → NOT IN).

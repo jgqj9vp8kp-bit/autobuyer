@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ArrowLeft, Lightbulb, Wrench } from "lucide-react";
+import { AdsetSelect, AdsetTable } from "@/components/AdsetTable";
 import { CriteriaBreakdown } from "@/components/CriteriaBreakdown";
 import { DailyChart } from "@/components/DailyChart";
 import { DateRange } from "@/components/DateRange";
@@ -10,6 +11,7 @@ import { ScreenFlowChart } from "@/components/ScreenFlowChart";
 import { Card, Kicker, VerdictPill } from "@/components/ui";
 import { loadConfig } from "@/lib/configStore";
 import { defaultRange, evaluateCached } from "@/lib/evaluate";
+import { adsetViews, campaignAdsets } from "@/lib/adsets";
 import { bucketCpa } from "@/lib/benchmarks";
 import { CHANNEL_LABEL } from "@/lib/channels";
 import { trialsNote } from "@/lib/trials";
@@ -61,7 +63,7 @@ export default async function CampaignPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ from?: string; to?: string; r?: string; hist?: string; product?: string; channel?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; r?: string; hist?: string; product?: string; channel?: string; adset?: string }>;
 }) {
   const { id: rawId } = await params;
   // id кампании может содержать пробелы (TikTok: "BR_hand_1-5 PR") — в params он приходит закодированным
@@ -94,14 +96,26 @@ export default async function CampaignPage({
   const segment = row.segment ?? null;
   const es = { maxAgeDays: 3 };
   const meta = VERDICT_META[score.verdict];
-  const [history, cfg, screenRows] = await Promise.all([scoreHistoryCached(ad, to, histDays, 7, product), loadConfig(product ?? DEFAULT_PRODUCT), campaignScreensCached(ad.campaignId, from, to)]);
+  const cfg = await loadConfig(product ?? DEFAULT_PRODUCT);
+  const [history, adsets, requestedScreens] = await Promise.all([
+    scoreHistoryCached(ad, to, histDays, 7, product),
+    ad.statsSource === "capsuled" ? campaignAdsets(ad.campaignId, from, to, cfg, segment) : Promise.resolve([]),
+    campaignScreensCached(ad.campaignId, from, to, sp.adset),
+  ]);
+  // Выбранный адсет переключает воронку, скор-карту, динамику и рекомендации; шапка и история остаются по кампании
+  const selected = adsets.find((a) => a.id === sp.adset) ?? null;
+  const view = selected ?? row;
+  const adsetRows = adsetViews(adsets);
+  const scope = selected ? `адсет ${selected.label}` : null;
+  // В другом периоде адсета из ссылки может не быть: тогда экраны нужны по всей кампании
+  const screenRows = sp.adset && !selected ? await campaignScreensCached(ad.campaignId, from, to) : requestedScreens;
   const screenFlow = buildScreenFlow(screenRows, cfg.funnel);
   const backQuery = `from=${from}&to=${to}&channel=${sp.channel ?? row.channel}${sp.product ? `&product=${sp.product}` : ""}`;
   const scored = history.points.filter((p) => p.verdict !== "NO_DATA");
   const first = scored[0];
   const last = scored[scored.length - 1];
   const delta = first && last && first !== last ? last.score - first.score : null;
-  const histQuery = (d: number) => `?from=${from}&to=${to}&hist=${d}`;
+  const histQuery = (d: number) => `?from=${from}&to=${to}&hist=${d}${sp.adset ? `&adset=${sp.adset}` : ""}`;
 
   const stat = (label: string, value: string, sub?: string) => (
     <div className="rounded-2xl bg-subtle p-4">
@@ -117,6 +131,11 @@ export default async function CampaignPage({
         <Link href={`/?${backQuery}`} className="inline-flex items-center gap-1 text-sm text-muted hover:text-ink">
           <ArrowLeft size={14} /> Все кампании
         </Link>
+        {ad.statsSource === "capsuled" && (
+          <Link href={`/creatives?campaign=${encodeURIComponent(ad.campaignId)}&from=${from}&to=${to}`} className="btn btn-ghost">
+            Креативы кампании
+          </Link>
+        )}
         <Suspense>
           <DateRange from={from} to={to} />
         </Suspense>
@@ -241,28 +260,46 @@ export default async function CampaignPage({
         )}
       </Card>
 
+      {adsetRows.length > 0 && (
+        <Card className="min-w-0">
+          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+            <div>
+              <Kicker>Адсеты кампании · {adsetRows.length}</Kicker>
+              <h2 className="text-lg font-bold">Статистика по адсетам</h2>
+            </div>
+            <div className="text-xs text-muted">Клик по строке показывает адсет в блоках ниже, повторный клик возвращает всю кампанию</div>
+          </div>
+          <Suspense>
+            <AdsetTable adsets={adsetRows} value={selected?.id ?? null} />
+          </Suspense>
+        </Card>
+      )}
+
       <div className="grid gap-6 lg:grid-cols-[1.1fr_1fr]">
         <Card className="min-w-0">
-          <div className="mb-4 flex items-center justify-between">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <Kicker>Воронка продукта · PostHog</Kicker>
+              <Kicker>{selected ? "Воронка адсета" : "Воронка продукта"} · PostHog</Kicker>
               <h2 className="text-lg font-bold">Как проходит аудитория</h2>
             </div>
+            <Suspense>
+              <AdsetSelect adsets={adsetRows} value={selected?.id ?? null} />
+            </Suspense>
             <div className="text-right text-xs text-muted">
-              визит → триал <span className="font-semibold text-ink">{fmtPct(funnel.trialCr, 2)}</span>
+              визит → триал <span className="font-semibold text-ink">{fmtPct(view.funnel.trialCr, 2)}</span>
             </div>
           </div>
           <div className="scrollbar-thin overflow-x-auto">
             <div className="min-w-[440px]">
-              <FunnelBars funnel={funnel} />
+              <FunnelBars funnel={view.funnel} />
             </div>
           </div>
           <div className="mt-4 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
             {[
-              ["CR 1-го экрана", fmtPct(funnel.firstScreenCr)],
-              ["до пэйвола", fmtPct(funnel.paywallReach)],
-              ["CR пэйвола", fmtPct(funnel.paywallCr)],
-              ["апсейл 1 / 2", `${fmtPct(funnel.upsell1Cr)} / ${funnel.hasUpsell2 ? fmtPct(funnel.upsell2Cr) : "нет"}`],
+              ["CR 1-го экрана", fmtPct(view.funnel.firstScreenCr)],
+              ["до пэйвола", fmtPct(view.funnel.paywallReach)],
+              ["CR пэйвола", fmtPct(view.funnel.paywallCr)],
+              ["апсейл 1 / 2", `${fmtPct(view.funnel.upsell1Cr)} / ${view.funnel.hasUpsell2 ? fmtPct(view.funnel.upsell2Cr) : "нет"}`],
             ].map(([l, v]) => (
               <div key={l} className="rounded-xl border border-line p-2.5">
                 <div className="text-muted">{l}</div>
@@ -275,31 +312,31 @@ export default async function CampaignPage({
 
         <Card>
           <div className="mb-4">
-            <Kicker>Скор-карта</Kicker>
+            <Kicker>Скор-карта{scope ? ` · ${scope}` : ""}</Kicker>
             <h2 className="text-lg font-bold">
-              {score.pointsEarned} из {score.pointsPossible} баллов
+              {view.score.pointsEarned} из {view.score.pointsPossible} баллов
             </h2>
           </div>
-          <CriteriaBreakdown criteria={score.criteria} />
+          <CriteriaBreakdown criteria={view.score.criteria} />
         </Card>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
         <Card>
           <div className="mb-3">
-            <Kicker>Динамика</Kicker>
+            <Kicker>Динамика{scope ? ` · ${scope}` : ""}</Kicker>
             <h2 className="text-lg font-bold">Расход и CPA по дням</h2>
           </div>
-          {ad.daily.length ? <DailyChart daily={ad.daily} /> : <div className="py-10 text-center text-sm text-muted">Нет дневной разбивки</div>}
+          {view.ad.daily.length ? <DailyChart daily={view.ad.daily} /> : <div className="py-10 text-center text-sm text-muted">Нет дневной разбивки</div>}
         </Card>
         <Card className="bg-gradient-to-br from-accent-soft to-white">
           <div className="mb-3">
-            <Kicker>Что делать</Kicker>
+            <Kicker>Что делать{scope ? ` · ${scope}` : ""}</Kicker>
             <h2 className="text-lg font-bold">Рекомендации</h2>
           </div>
-          {score.recommendations.length ? (
+          {view.score.recommendations.length ? (
             <ul className="space-y-2 text-sm">
-              {score.recommendations.map((t, i) => (
+              {view.score.recommendations.map((t, i) => (
                 <li key={i} className="flex gap-2 rounded-xl bg-white/80 p-3">
                   <Wrench size={14} className="mt-0.5 shrink-0 text-ink" />
                   <span>{t}</span>
@@ -307,7 +344,7 @@ export default async function CampaignPage({
               ))}
             </ul>
           ) : (
-            <div className="rounded-xl bg-white/80 p-3 text-sm">Проблемных критериев нет. {score.verdict === "SCALE" ? "Повышайте бюджет шагами по 20–30% и следите за CPA." : "Продолжайте наблюдение."}</div>
+            <div className="rounded-xl bg-white/80 p-3 text-sm">Проблемных критериев нет. {view.score.verdict === "SCALE" ? "Повышайте бюджет шагами по 20–30% и следите за CPA." : "Продолжайте наблюдение."}</div>
           )}
         </Card>
       </div>

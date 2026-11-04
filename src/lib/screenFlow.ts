@@ -1,5 +1,5 @@
 import { sourcesConfig } from "@/lib/evaluate";
-import { fetchCampaignScreens, type ScreenCount } from "@/lib/sources/posthog";
+import { ADSET_EXPR, fetchCampaignScreens, type ScreenCount } from "@/lib/sources/posthog";
 import type { FunnelStepDef } from "@/lib/types";
 
 /**
@@ -86,15 +86,15 @@ export function biggestDropBeforePaywall(points: ScreenFlowPoint[]): ScreenDrop 
 
 const cache = new Map<string, { at: number; value: ScreenCount[] }>();
 
-/** Экраны кампании за период; пусто в demo-режиме и при ошибке PostHog (график просто не показывается). */
-export async function campaignScreensCached(campaignId: string, dateFrom: string, dateTo: string): Promise<ScreenCount[]> {
+/** Экраны кампании или одного её адсета за период; пусто в demo-режиме и при ошибке PostHog (график просто не показывается). */
+export async function campaignScreensCached(campaignId: string, dateFrom: string, dateTo: string, adsetId?: string): Promise<ScreenCount[]> {
   const src = sourcesConfig();
   if (!src.live || !src.posthog) return [];
-  const key = `${campaignId}:${dateFrom}:${dateTo}`;
+  const key = `${adsetId ? `adset:${adsetId}` : campaignId}:${dateFrom}:${dateTo}`;
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < 120_000) return hit.value;
   try {
-    const value = await fetchCampaignScreens(src.posthog, campaignId, dateFrom, dateTo);
+    const value = adsetId ? await fetchCampaignScreens({ ...src.posthog, campaignExpr: ADSET_EXPR }, adsetId, dateFrom, dateTo) : await fetchCampaignScreens(src.posthog, campaignId, dateFrom, dateTo);
     cache.set(key, { at: Date.now(), value });
     return value;
   } catch {

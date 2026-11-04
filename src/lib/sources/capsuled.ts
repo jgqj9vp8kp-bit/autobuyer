@@ -213,11 +213,11 @@ function extractMeta(payload: unknown): CapsuledMeta {
   };
 }
 
-export async function fetchCampaignStats(opts: CapsuledOptions, dateFrom: string, dateTo: string): Promise<{ campaigns: AdCampaignStats[]; raw: unknown; meta: CapsuledMeta }> {
+async function requestFbStats(opts: CapsuledOptions, level: "campaign" | "adset" | "creative", dateFrom: string, dateTo: string, timeoutMs = 30_000): Promise<unknown> {
   const url = new URL(`${opts.baseUrl.replace(/\/$/, "")}/fb-stats`);
   url.searchParams.set("dateFrom", dateFrom);
   url.searchParams.set("dateTo", dateTo);
-  url.searchParams.set("level", "campaign");
+  url.searchParams.set("level", level);
   url.searchParams.set("includeDaily", "true");
   url.searchParams.set("includeInactive", "true");
   url.searchParams.set("limit", "10000");
@@ -225,7 +225,7 @@ export async function fetchCampaignStats(opts: CapsuledOptions, dateFrom: string
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${opts.apiKey}`, Accept: "application/json" },
     cache: "no-store",
-    signal: AbortSignal.timeout(30_000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   const text = await res.text();
   let body: unknown = text;
@@ -238,5 +238,117 @@ export async function fetchCampaignStats(opts: CapsuledOptions, dateFrom: string
     const msg = body && typeof body === "object" && "message" in body ? String((body as AnyRecord).message) : `HTTP ${res.status}`;
     throw new CapsuledError(msg, res.status, body);
   }
+  return body;
+}
+
+export async function fetchCampaignStats(opts: CapsuledOptions, dateFrom: string, dateTo: string): Promise<{ campaigns: AdCampaignStats[]; raw: unknown; meta: CapsuledMeta }> {
+  const body = await requestFbStats(opts, "campaign", dateFrom, dateTo);
   return { campaigns: mapCapsuledRows(extractRows(body)), raw: body, meta: extractMeta(body) };
+}
+
+/** Строка level=adset: один адсет, один день. Названий адсетов API не отдаёт: в adsetName приходит id. */
+export interface AdsetRow {
+  date: string;
+  adsetId: string;
+  adsetName?: string;
+  campaignId: string;
+  geo?: string;
+  spend: number;
+  impressions: number;
+  clicks: number;
+  reach: number;
+  purchases: number;
+  revenue: number;
+}
+
+export async function fetchAdsetRows(opts: CapsuledOptions, dateFrom: string, dateTo: string): Promise<AdsetRow[]> {
+  const body = await requestFbStats(opts, "adset", dateFrom, dateTo, 60_000);
+  const rows: AdsetRow[] = [];
+  for (const r of extractRows(body)) {
+    const adsetId = str(r.adsetId);
+    const date = str(pick(r, DATE_KEYS))?.slice(0, 10);
+    const campaignId = str(pick(r, ID_KEYS));
+    if (!adsetId || !date || !campaignId) continue;
+    rows.push({
+      date,
+      adsetId,
+      adsetName: str(r.adsetName),
+      campaignId,
+      geo: geoOf(r),
+      spend: num(pick(r, SPEND_KEYS)),
+      impressions: num(pick(r, IMPR_KEYS)),
+      clicks: num(pick(r, CLICK_KEYS)),
+      reach: num(r.reach),
+      purchases: num(pick(r, PURCHASE_KEYS)),
+      revenue: num(pick(r, REVENUE_KEYS)),
+    });
+  }
+  return rows;
+}
+
+/** Строка level=creative: один креатив, одно объявление, один день. */
+export interface CreativeRow {
+  date: string;
+  creativeId: string;
+  name: string | null;
+  type: string | null;
+  thumbnailUrl: string | null;
+  imageUrl: string | null;
+  destinationUrl: string | null;
+  adIds: string[];
+  campaignId: string;
+  campaignName: string;
+  accountName?: string;
+  buyer?: string;
+  geo?: string;
+  spend: number;
+  impressions: number;
+  clicks: number;
+  reach: number;
+  purchases: number;
+  revenue: number;
+}
+
+/** Покрытие из ответа: сколько строк объявлений сопоставлено с креативами и какой расход остался без них. */
+export interface CreativeCoverage {
+  sourceAdFacts: number;
+  mappedAdFacts: number;
+  unmappedAdFacts: number;
+  unmappedSpend: number;
+}
+
+function mapCreativeRow(r: AnyRecord): CreativeRow | null {
+  const creativeId = str(r.creativeId);
+  const date = str(pick(r, DATE_KEYS))?.slice(0, 10);
+  const campaignId = str(pick(r, ID_KEYS));
+  if (!creativeId || !date || !campaignId) return null;
+  return {
+    date,
+    creativeId,
+    name: str(r.creativeName) ?? null,
+    type: str(r.creativeType) ?? null,
+    thumbnailUrl: str(r.thumbnailUrl) ?? null,
+    imageUrl: str(r.imageUrl) ?? null,
+    destinationUrl: str(r.destinationUrl) ?? null,
+    adIds: Array.isArray(r.adIds) ? r.adIds.map(String) : [],
+    campaignId,
+    campaignName: String(pick(r, ["campaignName", "campaign_name"]) ?? campaignId),
+    accountName: str(pick(r, ["adAccountName", "accountName"])),
+    buyer: str(r.buyer),
+    geo: geoOf(r),
+    spend: num(pick(r, SPEND_KEYS)),
+    impressions: num(pick(r, IMPR_KEYS)),
+    clicks: num(pick(r, CLICK_KEYS)),
+    reach: num(r.reach),
+    purchases: num(pick(r, PURCHASE_KEYS)),
+    revenue: num(pick(r, REVENUE_KEYS)),
+  };
+}
+
+/** Строки без creativeId (старые периоды) отбрасываются: их расход виден в coverage.unmappedSpend. */
+export async function fetchCreativeRows(opts: CapsuledOptions, dateFrom: string, dateTo: string): Promise<{ rows: CreativeRow[]; coverage: CreativeCoverage | null; meta: CapsuledMeta }> {
+  const body = await requestFbStats(opts, "creative", dateFrom, dateTo, 60_000);
+  const c = (body as AnyRecord).creativeCoverage as AnyRecord | undefined;
+  const coverage = c ? { sourceAdFacts: num(c.sourceAdFacts), mappedAdFacts: num(c.mappedAdFacts), unmappedAdFacts: num(c.unmappedAdFacts), unmappedSpend: num(c.unmappedSpend) } : null;
+  return { rows: extractRows(body).map(mapCreativeRow).filter((r): r is CreativeRow => r !== null), coverage, meta: extractMeta(body) };
 }
