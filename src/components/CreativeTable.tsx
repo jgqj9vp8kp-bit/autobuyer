@@ -16,7 +16,7 @@ import { VERDICT_META } from "@/lib/verdict";
 type SortKey = "score" | "spend" | "visitors" | "purchases" | "cpa" | "ctr" | "trialCr" | "paywallCr";
 type Sort = { key: SortKey; dir: "asc" | "desc" };
 
-const TYPE_LABEL: Record<string, string> = { IMAGE: "Картинка", VIDEO: "Видео" };
+export const TYPE_LABEL: Record<string, string> = { IMAGE: "Картинка", VIDEO: "Видео" };
 
 const valueOf = (r: CreativeEvaluation, k: SortKey): number => {
   switch (k) {
@@ -51,7 +51,7 @@ function Th({ k, sort, onSort, children, className }: { k: SortKey; sort: Sort; 
 }
 
 /** Ссылки на картинки временные (CDN Meta): если устарела, показываем заглушку. */
-function Preview({ src, alt, className }: { src: string | null; alt: string; className: string }) {
+export function CreativePreview({ src, alt, className, contain = false }: { src: string | null; alt: string; className: string; contain?: boolean }) {
   const [failed, setFailed] = useState(false);
   if (!src || failed) {
     return (
@@ -61,14 +61,14 @@ function Preview({ src, alt, className }: { src: string | null; alt: string; cla
     );
   }
   // eslint-disable-next-line @next/next/no-img-element
-  return <img src={src} alt={alt} loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} className={clsx("rounded-lg bg-subtle object-cover", className)} />;
+  return <img src={src} alt={alt} loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} className={clsx("rounded-lg bg-subtle", contain ? "object-contain" : "object-cover", className)} />;
 }
 
-function Details({ r, linkQuery }: { r: CreativeEvaluation; linkQuery: string }) {
+export function CreativeDetails({ r, linkQuery, showCampaigns = true }: { r: CreativeEvaluation; linkQuery: string; showCampaigns?: boolean }) {
   return (
     <div className="grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)_minmax(0,300px)]">
       <div className="min-w-0 space-y-2">
-        <Preview src={r.imageUrl ?? r.thumbnailUrl} alt={r.name} className="h-48 w-full object-contain" />
+        <CreativePreview src={r.imageUrl ?? r.thumbnailUrl} alt={r.name} className="h-56 w-full" contain />
         <div className="text-xs leading-relaxed text-muted">
           {r.type ? (TYPE_LABEL[r.type] ?? r.type) : "Формат неизвестен"}
           {r.createdDate ? ` · создан ${fmtDate(r.createdDate)}` : ""}
@@ -93,20 +93,22 @@ function Details({ r, linkQuery }: { r: CreativeEvaluation; linkQuery: string })
         )}
       </div>
       <div className="min-w-0 space-y-4">
-        <div>
-          <div className="kicker mb-2">Кампании</div>
-          <ul className="space-y-1 text-xs">
-            {r.campaigns.slice(0, 8).map((c) => (
-              <li key={c.id} className="flex items-baseline justify-between gap-3">
-                <Link href={`/campaigns/${encodeURIComponent(c.id)}?${linkQuery}`} className="truncate font-medium hover:underline" title={c.name}>
-                  {c.name}
-                </Link>
-                <span className="shrink-0 tabular-nums text-muted">{fmtMoney(c.spend)}</span>
-              </li>
-            ))}
-            {r.campaigns.length > 8 && <li className="text-muted">и ещё {r.campaigns.length - 8}</li>}
-          </ul>
-        </div>
+        {showCampaigns && (
+          <div>
+            <div className="kicker mb-2">Кампании</div>
+            <ul className="space-y-1 text-xs">
+              {r.campaigns.slice(0, 8).map((c) => (
+                <li key={c.id} className="flex items-baseline justify-between gap-3">
+                  <Link href={`/campaigns/${encodeURIComponent(c.id)}?${linkQuery}`} className="truncate font-medium hover:underline" title={c.name}>
+                    {c.name}
+                  </Link>
+                  <span className="shrink-0 tabular-nums text-muted">{fmtMoney(c.spend)}</span>
+                </li>
+              ))}
+              {r.campaigns.length > 8 && <li className="text-muted">и ещё {r.campaigns.length - 8}</li>}
+            </ul>
+          </div>
+        )}
         {r.score.recommendations.length > 0 && (
           <div>
             <div className="kicker mb-2">Что делать</div>
@@ -248,7 +250,7 @@ export function CreativeTable({ rows, linkQuery }: { rows: CreativeEvaluation[];
                     </td>
                     <td className="max-w-[360px]">
                       <div className="flex items-center gap-3">
-                        <Preview src={r.thumbnailUrl} alt={r.name} className="h-11 w-11 shrink-0" />
+                        <CreativePreview src={r.thumbnailUrl} alt={r.name} className="h-11 w-11 shrink-0" />
                         <div className="min-w-0">
                           <div className="truncate font-semibold" title={r.name}>
                             {r.name}
@@ -281,7 +283,7 @@ export function CreativeTable({ rows, linkQuery }: { rows: CreativeEvaluation[];
                   {isOpen && (
                     <tr>
                       <td colSpan={11} className="bg-subtle/40">
-                        <Details r={r} linkQuery={linkQuery} />
+                        <CreativeDetails r={r} linkQuery={linkQuery} />
                       </td>
                     </tr>
                   )}

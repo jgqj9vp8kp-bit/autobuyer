@@ -279,7 +279,9 @@ export async function fetchAdsetRows(opts: CapsuledOptions, dateFrom: string, da
       impressions: num(pick(r, IMPR_KEYS)),
       clicks: num(pick(r, CLICK_KEYS)),
       reach: num(r.reach),
-      purchases: num(pick(r, PURCHASE_KEYS)),
+      // За дни примерно до 20.09.2026 на этом уровне fbPurchases не заполнен (0), покупки есть только в results;
+      // с 20.09 оба поля совпадают в каждой строке
+      purchases: Math.max(num(r.fbPurchases), num(r.results)),
       revenue: num(pick(r, REVENUE_KEYS)),
     });
   }
@@ -296,6 +298,7 @@ export interface CreativeRow {
   imageUrl: string | null;
   destinationUrl: string | null;
   adIds: string[];
+  adsetId?: string;
   campaignId: string;
   campaignName: string;
   accountName?: string;
@@ -331,6 +334,7 @@ function mapCreativeRow(r: AnyRecord): CreativeRow | null {
     imageUrl: str(r.imageUrl) ?? null,
     destinationUrl: str(r.destinationUrl) ?? null,
     adIds: Array.isArray(r.adIds) ? r.adIds.map(String) : [],
+    adsetId: str(r.adsetId),
     campaignId,
     campaignName: String(pick(r, ["campaignName", "campaign_name"]) ?? campaignId),
     accountName: str(pick(r, ["adAccountName", "accountName"])),

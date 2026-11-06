@@ -200,7 +200,7 @@ export function toAd(key: string, name: string, rows: StatRow[], latestDate: str
 
 const uniqueSorted = (values: Array<string | undefined>) => [...new Set(values.filter((v): v is string => Boolean(v)))].sort();
 
-export async function evaluateCreatives(dateFrom: string, dateTo: string, options: { campaignId?: string; force?: boolean } = {}): Promise<CreativeReport> {
+export async function evaluateCreatives(dateFrom: string, dateTo: string, options: { campaignId?: string; adsetId?: string; force?: boolean } = {}): Promise<CreativeReport> {
   const generatedAt = new Date().toISOString();
   const base = { dateFrom, dateTo, generatedAt };
   let data: CreativeData | null;
@@ -214,7 +214,7 @@ export async function evaluateCreatives(dateFrom: string, dateTo: string, option
   const configs = await loadAllConfigs();
   const allRows = data.rows.filter(delivered);
   const latestDate = allRows.reduce<string | undefined>((m, r) => (!m || r.date > m ? r.date : m), undefined);
-  const rows = options.campaignId ? allRows.filter((r) => r.campaignId === options.campaignId) : allRows;
+  const rows = allRows.filter((r) => (!options.campaignId || r.campaignId === options.campaignId) && (!options.adsetId || r.adsetId === options.adsetId));
 
   const groups = new Map<string, CreativeRow[]>();
   for (const r of rows) {

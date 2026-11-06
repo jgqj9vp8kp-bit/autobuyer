@@ -267,10 +267,10 @@ export default async function CampaignPage({
               <Kicker>Адсеты кампании · {adsetRows.length}</Kicker>
               <h2 className="text-lg font-bold">Статистика по адсетам</h2>
             </div>
-            <div className="text-xs text-muted">Клик по строке показывает адсет в блоках ниже, повторный клик возвращает всю кампанию</div>
+            <div className="text-xs text-muted">Клик раскрывает креативы адсета и показывает его в блоках ниже, повторный клик возвращает всю кампанию</div>
           </div>
           <Suspense>
-            <AdsetTable adsets={adsetRows} value={selected?.id ?? null} />
+            <AdsetTable adsets={adsetRows} value={selected?.id ?? null} campaignId={ad.campaignId} from={from} to={to} />
           </Suspense>
         </Card>
       )}
