@@ -261,6 +261,26 @@ export interface EarlyStageRule {
   minSegmentTrials: number;
 }
 
+/** Доля одной воронки в посетителях кампании */
+export interface FunnelShare {
+  alias: string;
+  visitors: number;
+  share: number;
+}
+
+/** Откуда взята воронка кампании: PostHog по посетителям, путь ссылки креатива, название кампании */
+export type FunnelSource = "posthog" | "creative_url" | "campaign_name";
+
+/** Воронка, к которой относится кампания: главная по посетителям, остальные — для подсказки */
+export interface FunnelAssignment {
+  alias: string | null;
+  source: FunnelSource | null;
+  /** Доля главной воронки в посетителях (только PostHog) */
+  share: number | null;
+  /** Другие воронки кампании по убыванию посетителей */
+  others: FunnelShare[];
+}
+
 export interface CampaignEvaluation {
   ad: AdCampaignStats;
   funnel: FunnelMetrics;
@@ -272,6 +292,8 @@ export interface CampaignEvaluation {
   segment?: SegmentInfo | null;
   /** Канал трафика */
   channel: Channel;
+  /** Воронка кампании */
+  funnelInfo: FunnelAssignment;
 }
 
 export interface SourceStatus {

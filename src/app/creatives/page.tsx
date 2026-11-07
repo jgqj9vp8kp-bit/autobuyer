@@ -2,18 +2,20 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { CreativeTable } from "@/components/CreativeTable";
 import { DateRange } from "@/components/DateRange";
+import { FunnelSwitch } from "@/components/FunnelSwitch";
 import { ProductSwitch } from "@/components/ProductSwitch";
 import { KpiTile } from "@/components/ui";
 import { evaluateCreatives } from "@/lib/creatives";
 import { defaultRange } from "@/lib/evaluate";
 import { fmtMoney, fmtNum } from "@/lib/format";
+import { funnelOptions, funnelTitle, matchesFunnel, parseFunnelParam } from "@/lib/funnels";
 import { isProductKey, PRODUCT_KEYS, PRODUCT_LABEL } from "@/lib/products";
 import type { ProductKey } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-type SP = Promise<{ from?: string; to?: string; r?: string; product?: string; campaign?: string }>;
+type SP = Promise<{ from?: string; to?: string; r?: string; product?: string; campaign?: string; funnel?: string }>;
 
 export default async function CreativesPage({ searchParams }: { searchParams: SP }) {
   const sp = await searchParams;
@@ -21,10 +23,13 @@ export default async function CreativesPage({ searchParams }: { searchParams: SP
   const from = sp.from ?? def.dateFrom;
   const to = sp.to ?? def.dateTo;
   const product: ProductKey | null = isProductKey(sp.product) ? sp.product : null;
+  const funnel = sp.campaign ? null : parseFunnelParam(sp.funnel);
   const report = await evaluateCreatives(from, to, { campaignId: sp.campaign, force: Boolean(sp.r) });
 
   const all = report.creatives;
-  const rows = product ? all.filter((c) => c.product === product) : all;
+  const inProduct = product ? all.filter((c) => c.product === product) : all;
+  const funnelOpts = funnelOptions(inProduct, (c) => c.funnelAlias, (c) => c.ad.spend, funnel);
+  const rows = inProduct.filter((c) => matchesFunnel(c.funnelAlias, funnel));
   const counts: Partial<Record<ProductKey | "all", number>> = { all: all.length };
   for (const k of PRODUCT_KEYS) counts[k] = all.filter((c) => c.product === k).length;
 
@@ -34,7 +39,7 @@ export default async function CreativesPage({ searchParams }: { searchParams: SP
   const active = rows.filter((c) => c.ad.status === "ACTIVE").length;
   const byVerdict = (v: string) => rows.filter((c) => c.score.verdict === v);
   const unmapped = report.coverage?.unmappedSpend ?? 0;
-  const linkQuery = `from=${from}&to=${to}`;
+  const linkQuery = `from=${from}&to=${to}${funnel ? `&funnel=${funnel}` : ""}`;
 
   return (
     <div className="fade-up space-y-6">
@@ -43,6 +48,7 @@ export default async function CreativesPage({ searchParams }: { searchParams: SP
           <div className="kicker">Facebook · воронка по id объявления</div>
           <h1 className="mt-1 text-3xl font-bold">
             Креативы{product ? ` · ${PRODUCT_LABEL[product]}` : ""}
+            {funnel ? ` · ${funnelTitle(funnel)}` : ""}
           </h1>
           {sp.campaign && (
             <p className="mt-2 text-sm text-muted">
@@ -53,15 +59,22 @@ export default async function CreativesPage({ searchParams }: { searchParams: SP
             </p>
           )}
         </div>
-        <div className="flex flex-col items-end gap-2">
+        <div className="flex min-w-0 max-w-full flex-col items-end gap-2">
           {!sp.campaign && (
             <Suspense>
               <ProductSwitch value={product} counts={counts} />
             </Suspense>
           )}
-          <Suspense>
-            <DateRange from={from} to={to} />
-          </Suspense>
+          <div className="flex max-w-full flex-wrap items-center justify-end gap-2">
+            {!sp.campaign && (
+              <Suspense>
+                <FunnelSwitch value={funnel} options={funnelOpts} total={inProduct.length} unit="креат." />
+              </Suspense>
+            )}
+            <Suspense>
+              <DateRange from={from} to={to} />
+            </Suspense>
+          </div>
         </div>
       </header>
 

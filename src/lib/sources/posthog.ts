@@ -1,4 +1,4 @@
-import type { FunnelCounts, FunnelStepDef } from "@/lib/types";
+import type { FunnelCounts, FunnelShare, FunnelStepDef } from "@/lib/types";
 
 /**
  * Клиент PostHog: считает уникальных пользователей на каждом шаге воронки
@@ -27,6 +27,9 @@ export class PostHogError extends Error {
     super(message);
   }
 }
+
+/** Сценарий отмены подписки (funnel_alias cancel-*): туда попадают уже платящие, это не воронка закупки */
+const NOT_CANCEL = "lower(toString(properties.funnel_alias)) NOT LIKE '%cancel%'";
 
 const escapeStr = (s: string) => s.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 const ident = (s: string) => s.replace(/[^a-zA-Z0-9_]/g, "_");
@@ -70,7 +73,7 @@ export function buildFunnelQuery(funnel: FunnelStepDef[], dateFrom: string, date
   const stepExprs = funnel.map((s) => `countDistinctIf(person_id, ${stepCondition(s)}) AS ${ident(s.key)}`);
   return `
 SELECT toString(${campaignExpr}) AS campaign,
-  anyIf(toString(properties.funnel_alias), toString(properties.funnel_alias) != '') AS funnel_alias,
+  anyIf(toString(properties.funnel_alias), toString(properties.funnel_alias) != '' AND ${NOT_CANCEL}) AS funnel_alias,
   anyIf(toString(properties.$host), toString(properties.$host) != '') AS host,
   anyIf(toString(properties.utm_source), toString(properties.utm_source) != '') AS utm_source,
   ${stepExprs.join(",\n  ")}
@@ -183,6 +186,46 @@ export async function fetchFunnelHistory(
   });
 }
 
+/**
+ * Разбивка посетителей кампании по воронкам (funnel_alias) без сценария отмены.
+ * Главная воронка — первая в списке. groupExpr — к чему привязывать: кампания (по умолчанию) или объявление.
+ */
+export async function fetchFunnelSplit(opts: PostHogOptions, dateFrom: string, dateTo: string, groupExpr?: string): Promise<Map<string, FunnelShare[]>> {
+  const expr = groupExpr ?? opts.campaignExpr ?? DEFAULT_CAMPAIGN_EXPR;
+  const query = `
+SELECT toString(${expr}) AS campaign,
+  toString(properties.funnel_alias) AS alias,
+  countDistinct(person_id) AS visitors
+FROM events
+WHERE event = 'funnel_screen_open'
+  AND timestamp >= toDateTime('${dateFrom} 00:00:00')
+  AND timestamp <= toDateTime('${dateTo} 23:59:59')
+  AND campaign != ''
+  AND alias != ''
+  AND ${NOT_CANCEL}
+GROUP BY campaign, alias
+ORDER BY visitors DESC
+LIMIT 50000`.trim();
+  const { columns, results } = await runQuery(opts, query);
+  const out = new Map<string, FunnelShare[]>();
+  for (const rec of rowsToRecords(columns, results)) {
+    const c = String(rec.campaign ?? "");
+    const alias = String(rec.alias ?? "").toLowerCase();
+    if (!c || !alias) continue;
+    const list = out.get(c) ?? [];
+    const same = list.find((x) => x.alias === alias);
+    if (same) same.visitors += Number(rec.visitors ?? 0);
+    else list.push({ alias, visitors: Number(rec.visitors ?? 0), share: 0 });
+    out.set(c, list);
+  }
+  for (const list of out.values()) {
+    list.sort((a, b) => b.visitors - a.visitors);
+    const total = list.reduce((s, x) => s + x.visitors, 0);
+    for (const x of list) x.share = total > 0 ? x.visitors / total : 0;
+  }
+  return out;
+}
+
 /** Домен воронки ($host) по кампаниям за период — для определения продукта в бенчмарках сегментов. */
 export async function fetchCampaignHosts(opts: PostHogOptions, dateFrom: string, dateTo: string): Promise<Map<string, string>> {
   const campaignExpr = opts.campaignExpr ?? DEFAULT_CAMPAIGN_EXPR;
@@ -281,7 +324,7 @@ WHERE event = 'funnel_screen_open'
   AND timestamp >= toDateTime('${dateFrom} 00:00:00')
   AND timestamp <= toDateTime('${dateTo} 23:59:59')
   AND ${campaignExpr} = '${escapeStr(campaignId)}'
-  AND lower(toString(properties.funnel_alias)) NOT LIKE '%cancel%'
+  AND ${NOT_CANCEL}
   AND screen != ''
 GROUP BY screen
 ORDER BY idx ASC, users DESC

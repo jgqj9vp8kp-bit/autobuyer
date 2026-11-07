@@ -23,13 +23,13 @@ export function ChannelSwitch({ value, counts }: { value: Channel; counts: Parti
   const items = CHANNELS.filter((c) => c.key === value || (counts[c.key] ?? 0) > 0);
 
   return (
-    <div className={clsx("flex items-center gap-1 rounded-full bg-ink p-1 text-white", pending && "opacity-60")}>
+    <div className={clsx("scrollbar-thin flex max-w-full items-center gap-1 overflow-x-auto rounded-full bg-ink p-1 text-white", pending && "opacity-60")}>
       {items.map((c) => (
         <button
           key={c.key}
           onClick={() => select(c.key)}
           title={c.hint}
-          className={clsx("rounded-full px-3 py-1.5 text-xs font-semibold transition", value === c.key ? "bg-accent text-ink" : "text-white/70 hover:bg-white/10 hover:text-white")}
+          className={clsx("shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-semibold transition", value === c.key ? "bg-accent text-ink" : "text-white/70 hover:bg-white/10 hover:text-white")}
         >
           {c.label}
           <span className="ml-1 opacity-60">{counts[c.key] ?? 0}</span>

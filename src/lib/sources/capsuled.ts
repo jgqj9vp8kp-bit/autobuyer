@@ -213,12 +213,12 @@ function extractMeta(payload: unknown): CapsuledMeta {
   };
 }
 
-async function requestFbStats(opts: CapsuledOptions, level: "campaign" | "adset" | "creative", dateFrom: string, dateTo: string, timeoutMs = 30_000): Promise<unknown> {
+async function requestFbStats(opts: CapsuledOptions, level: "campaign" | "adset" | "creative", dateFrom: string, dateTo: string, timeoutMs = 30_000, daily = true): Promise<unknown> {
   const url = new URL(`${opts.baseUrl.replace(/\/$/, "")}/fb-stats`);
   url.searchParams.set("dateFrom", dateFrom);
   url.searchParams.set("dateTo", dateTo);
   url.searchParams.set("level", level);
-  url.searchParams.set("includeDaily", "true");
+  url.searchParams.set("includeDaily", daily ? "true" : "false");
   url.searchParams.set("includeInactive", "true");
   url.searchParams.set("limit", "10000");
 
@@ -350,6 +350,24 @@ function mapCreativeRow(r: AnyRecord): CreativeRow | null {
 }
 
 /** Строки без creativeId (старые периоды) отбрасываются: их расход виден в coverage.unmappedSpend. */
+/**
+ * Ссылки креативов по кампаниям за период без дневной разбивки (запрос легче): кампания → ссылка → расход.
+ * По пути ссылки определяется воронка, если в PostHog по кампании ничего нет.
+ */
+export async function fetchCreativeDestinations(opts: CapsuledOptions, dateFrom: string, dateTo: string): Promise<Map<string, Map<string, number>>> {
+  const body = await requestFbStats(opts, "creative", dateFrom, dateTo, 30_000, false);
+  const out = new Map<string, Map<string, number>>();
+  for (const r of extractRows(body)) {
+    const campaignId = str(r.campaignId);
+    const url = str(r.destinationUrl);
+    if (!campaignId || !url) continue;
+    const m = out.get(campaignId) ?? new Map<string, number>();
+    m.set(url, (m.get(url) ?? 0) + num(r.spend));
+    out.set(campaignId, m);
+  }
+  return out;
+}
+
 export async function fetchCreativeRows(opts: CapsuledOptions, dateFrom: string, dateTo: string): Promise<{ rows: CreativeRow[]; coverage: CreativeCoverage | null; meta: CapsuledMeta }> {
   const body = await requestFbStats(opts, "creative", dateFrom, dateTo, 60_000);
   const c = (body as AnyRecord).creativeCoverage as AnyRecord | undefined;

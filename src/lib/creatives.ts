@@ -1,4 +1,5 @@
 import { loadAllConfigs } from "@/lib/configStore";
+import { funnelFromUrl } from "@/lib/funnels";
 import { sourcesConfig } from "@/lib/evaluate";
 import { DEFAULT_PRODUCT, detectProduct, PRODUCT_KEYS, productFromHost } from "@/lib/products";
 import { computeFunnelMetrics } from "@/lib/scoring/funnel";
@@ -6,7 +7,7 @@ import { scoreCampaign } from "@/lib/scoring/engine";
 import { fetchCreativeRows, type CreativeCoverage, type CreativeRow } from "@/lib/sources/capsuled";
 import { fetchDailyStepCounts, fetchFunnelCounts } from "@/lib/sources/posthog";
 import { applyFunnelTrials, keepFbTrials, MIN_VISITORS_FOR_FUNNEL_TRIALS, TRIAL_STEP_KEY, trialStepOf } from "@/lib/trials";
-import type { AdCampaignStats, CampaignScore, DailyAdStats, FunnelCounts, FunnelMetrics, ProductKey } from "@/lib/types";
+import type { AdCampaignStats, CampaignScore, DailyAdStats, FunnelCounts, FunnelMetrics, FunnelSource, ProductKey } from "@/lib/types";
 
 /**
  * Оценка креативов. Дашборд отдаёт строки level=creative (креатив × объявление × день), а PostHog знает
@@ -15,6 +16,8 @@ import type { AdCampaignStats, CampaignScore, DailyAdStats, FunnelCounts, Funnel
  *
  * Один и тот же визуал баеры заливают под разными creativeId (дубли кампаний). Для закупки это один креатив,
  * поэтому строки склеиваются по файлу превью; разные тексты при этом не смешиваются (проверено на данных).
+ * Склейка идёт внутри одной воронки (путь ссылки): визуал, который крутится в двух воронках, — две строки,
+ * иначе расход второй воронки уходил бы в первую и фильтр по воронке не сходился бы с кампаниями.
  */
 
 const AD_EXPR = "coalesce(nullIf(toString(properties.utm_content), ''), nullIf(toString(person.properties.$initial_utm_content), ''), '')";
@@ -44,6 +47,9 @@ export interface CreativeEvaluation {
   buyers: string[];
   geos: string[];
   product: ProductKey | null;
+  /** Воронка: путь ссылки креатива, иначе главная воронка его объявлений в PostHog */
+  funnelAlias: string | null;
+  funnelSource: FunnelSource | null;
   ad: AdCampaignStats;
   funnel: FunnelMetrics;
   score: Pick<CampaignScore, "score" | "grade" | "verdict" | "recommendations">;
@@ -218,7 +224,7 @@ export async function evaluateCreatives(dateFrom: string, dateTo: string, option
 
   const groups = new Map<string, CreativeRow[]>();
   for (const r of rows) {
-    const k = visualKey(r);
+    const k = `${visualKey(r)}|${funnelFromUrl(r.destinationUrl) ?? ""}`;
     const g = groups.get(k);
     if (g) g.push(r);
     else groups.set(k, [r]);
@@ -246,6 +252,8 @@ export async function evaluateCreatives(dateFrom: string, dateTo: string, option
     const perDay = sumDaily(adIds, data.dailyTrials.get(JSON.stringify(trialStepOf(cfg) ?? null)));
     const ad = trials !== undefined && funnel.visitors >= MIN_VISITORS_FOR_FUNNEL_TRIALS ? applyFunnelTrials(rawAd, trials, perDay) : keepFbTrials(rawAd);
     const { score, grade, verdict, recommendations } = scoreCampaign(ad, funnel, cfg);
+    const urlFunnel = funnelFromUrl(destinationUrl);
+    const phFunnel = counts?.funnelAlias?.toLowerCase() || null;
 
     const byCampaign = new Map<string, CreativeCampaign>();
     for (const r of group) {
@@ -269,6 +277,8 @@ export async function evaluateCreatives(dateFrom: string, dateTo: string, option
       buyers: uniqueSorted(group.map((r) => r.buyer)),
       geos: uniqueSorted(group.map((r) => r.geo)),
       product,
+      funnelAlias: urlFunnel ?? phFunnel,
+      funnelSource: urlFunnel ? "creative_url" : phFunnel ? "posthog" : null,
       // Дневные данные уже учтены в скоре, на страницу они не нужны
       ad: { ...ad, daily: [] },
       funnel,

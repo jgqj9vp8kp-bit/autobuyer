@@ -147,7 +147,7 @@ export function CreativeTable({ rows, linkQuery }: { rows: CreativeEvaluation[];
   const filtered = useMemo(() => {
     const needle = q.toLowerCase();
     return rows
-      .filter((r) => (needle ? `${r.name} ${r.creativeIds.join(" ")} ${r.buyers.join(" ")} ${r.campaigns.map((c) => c.name).join(" ")}`.toLowerCase().includes(needle) : true))
+      .filter((r) => (needle ? `${r.name} ${r.creativeIds.join(" ")} ${r.buyers.join(" ")} ${r.campaigns.map((c) => c.name).join(" ")} ${r.funnelAlias ?? ""}`.toLowerCase().includes(needle) : true))
       .filter((r) => buyer === "all" || r.buyers.includes(buyer))
       .filter((r) => geo === "all" || r.geos.includes(geo))
       .filter((r) => type === "all" || r.type === type)
@@ -258,7 +258,8 @@ export function CreativeTable({ rows, linkQuery }: { rows: CreativeEvaluation[];
                           <div className="mt-0.5 flex items-center gap-1.5 truncate text-[11px] text-muted">
                             <span className={clsx("h-1.5 w-1.5 shrink-0 rounded-full", r.ad.status === "ACTIVE" ? "bg-success" : "bg-line")} title={r.ad.status === "ACTIVE" ? "крутится" : "не крутится"} />
                             <span className="truncate">
-                              <span className="font-semibold text-ink">{r.product ? PRODUCT_LABEL[r.product] : (r.destinationHost ?? "?")}</span> · {r.type ? (TYPE_LABEL[r.type] ?? r.type) : "формат ?"} · {r.buyers.join(", ") || "—"} · {r.geos.join(", ") || "—"}
+                              <span className="font-semibold text-ink">{r.product ? PRODUCT_LABEL[r.product] : (r.destinationHost ?? "?")}</span> · {r.type ? (TYPE_LABEL[r.type] ?? r.type) : "формат ?"} · {r.buyers.join(", ") || "—"} · {r.geos.join(", ") || "—"} ·{" "}
+                              <span className="font-mono">{r.funnelAlias ?? "воронка ?"}</span>
                               {r.campaigns.length > 1 ? ` · ${r.campaigns.length} кампаний` : ""}
                             </span>
                           </div>

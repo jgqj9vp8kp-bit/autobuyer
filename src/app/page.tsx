@@ -2,12 +2,14 @@ import { Suspense } from "react";
 import { CampaignTable } from "@/components/CampaignTable";
 import { ChannelSwitch } from "@/components/ChannelSwitch";
 import { DateRange } from "@/components/DateRange";
+import { FunnelSwitch } from "@/components/FunnelSwitch";
 import { ProductSwitch } from "@/components/ProductSwitch";
 import { SourcesBar } from "@/components/SourcesBar";
 import { KpiTile } from "@/components/ui";
 import { CHANNEL_KEYS, CHANNEL_LABEL, DEFAULT_CHANNEL, isChannel } from "@/lib/channels";
 import { defaultRange, evaluateCached } from "@/lib/evaluate";
 import { fmtMoney, fmtNum } from "@/lib/format";
+import { funnelOptions, funnelTitle, matchesFunnel, parseFunnelParam } from "@/lib/funnels";
 import { isProductKey, PRODUCT_KEYS, PRODUCT_LABEL } from "@/lib/products";
 import type { Channel, ProductKey } from "@/lib/types";
 
@@ -15,7 +17,7 @@ export const dynamic = "force-dynamic";
 // Vercel: запросы к дашборду и PostHog (60-дневные бенчмарки) могут занимать больше 10 с по умолчанию
 export const maxDuration = 60;
 
-type SP = Promise<{ from?: string; to?: string; r?: string; product?: string; channel?: string }>;
+type SP = Promise<{ from?: string; to?: string; r?: string; product?: string; channel?: string; funnel?: string }>;
 
 export default async function DashboardPage({ searchParams }: { searchParams: SP }) {
   const sp = await searchParams;
@@ -24,12 +26,16 @@ export default async function DashboardPage({ searchParams }: { searchParams: SP
   const to = sp.to ?? def.dateTo;
   const product: ProductKey | null = isProductKey(sp.product) ? sp.product : null;
   const channel: Channel = isChannel(sp.channel) ? sp.channel : DEFAULT_CHANNEL;
+  const funnel = parseFunnelParam(sp.funnel);
   const data = await evaluateCached(from, to, Boolean(sp.r));
 
   // Каналы не смешиваем: сначала режем по каналу, продуктовый переключатель считает уже внутри канала
   const everything = data.campaigns;
   const inChannel = everything.filter((r) => r.channel === channel);
-  const rows = product ? inChannel.filter((r) => r.product === product) : inChannel;
+  const inProduct = product ? inChannel.filter((r) => r.product === product) : inChannel;
+  // Воронка — последний срез: список воронок считается внутри канала и продукта
+  const funnelOpts = funnelOptions(inProduct, (r) => r.funnelInfo.alias, (r) => r.ad.spend, funnel);
+  const rows = inProduct.filter((r) => matchesFunnel(r.funnelInfo.alias, funnel));
   const counts: Partial<Record<ProductKey | "all", number>> = { all: inChannel.length };
   for (const k of PRODUCT_KEYS) counts[k] = inChannel.filter((r) => r.product === k).length;
   const channelCounts: Partial<Record<Channel, number>> = {};
@@ -47,7 +53,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: SP
   const byVerdict = (v: string) => rows.filter((r) => r.score.verdict === v);
   const scaleSpend = byVerdict("SCALE").reduce((s, r) => s + r.ad.spend, 0);
   const pauseSpend = byVerdict("PAUSE").reduce((s, r) => s + r.ad.spend, 0);
-  const linkQuery = `from=${from}&to=${to}&channel=${channel}${product ? `&product=${product}` : ""}`;
+  const linkQuery = `from=${from}&to=${to}&channel=${channel}${product ? `&product=${product}` : ""}${funnel ? `&funnel=${funnel}` : ""}`;
 
   return (
     <div className="fade-up space-y-6">
@@ -57,13 +63,14 @@ export default async function DashboardPage({ searchParams }: { searchParams: SP
           <h1 className="mt-1 text-3xl font-bold">
             Кампании {CHANNEL_LABEL[channel]}
             {product ? ` · ${PRODUCT_LABEL[product]}` : ""}
+            {funnel ? ` · ${funnelTitle(funnel)}` : ""}
           </h1>
           <div className="mt-2">
             <SourcesBar data={data} />
           </div>
         </div>
-        <div className="flex flex-col items-end gap-2">
-          <div className="flex flex-wrap items-center justify-end gap-2">
+        <div className="flex min-w-0 max-w-full flex-col items-end gap-2">
+          <div className="flex max-w-full flex-wrap items-center justify-end gap-2">
             <Suspense>
               <ChannelSwitch value={channel} counts={channelCounts} />
             </Suspense>
@@ -71,9 +78,14 @@ export default async function DashboardPage({ searchParams }: { searchParams: SP
               <ProductSwitch value={product} counts={counts} />
             </Suspense>
           </div>
-          <Suspense>
-            <DateRange from={from} to={to} />
-          </Suspense>
+          <div className="flex max-w-full flex-wrap items-center justify-end gap-2">
+            <Suspense>
+              <FunnelSwitch value={funnel} options={funnelOpts} total={inProduct.length} unit="камп." />
+            </Suspense>
+            <Suspense>
+              <DateRange from={from} to={to} />
+            </Suspense>
+          </div>
         </div>
       </header>
 

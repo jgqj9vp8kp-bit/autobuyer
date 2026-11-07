@@ -1,8 +1,9 @@
 import { addDaysIso } from "@/lib/format";
+import { funnelFromName, NO_FUNNEL } from "@/lib/funnels";
 import { detectProduct, PRODUCT_LABEL } from "@/lib/products";
 import { extractRows, fetchCampaignStats, mapCapsuledRows, type CapsuledOptions } from "@/lib/sources/capsuled";
 import { DEFAULT_SCORING_CONFIG } from "@/lib/scoring/defaultConfig";
-import { fetchCampaignHosts, fetchDailyStepCounts, type PostHogOptions } from "@/lib/sources/posthog";
+import { fetchCampaignHosts, fetchDailyStepCounts, fetchFunnelSplit, type PostHogOptions } from "@/lib/sources/posthog";
 import { applyFunnelTrials, trialStepOf } from "@/lib/trials";
 import type { AdCampaignStats, DayBucket, EarlyStageRule, FunnelStepDef, ProductKey, SegmentBenchmark, SegmentInfo } from "@/lib/types";
 
@@ -22,6 +23,8 @@ export interface BenchmarkSet {
   /** первая дата открутки по кампаниям окна; startedBefore — открутка шла уже в первый день окна (возраст неизвестен) */
   launches: Record<string, { first: string; startedBefore: boolean }>;
   campaigns: number;
+  /** Те же сегменты внутри каждой воронки (ключ — алиас главной воронки кампании или NO_FUNNEL) */
+  funnels?: Record<string, { campaigns: number; spend: number; segments: Record<string, SegmentBenchmark> }>;
 }
 
 const bucket = (): DayBucket => ({ spend: 0, trials: 0, campaigns: 0 });
@@ -114,11 +117,12 @@ export async function getBenchmarks(
   if (cache && cache.key === dateTo && Date.now() - cache.at < TTL) return cache.value;
   const windowFrom = addDaysIso(dateTo, -(BENCHMARK_WINDOW_DAYS - 1));
   const mid = addDaysIso(dateTo, -29);
-  const [a, b, hosts, dailyTrials] = await Promise.all([
+  const [a, b, hosts, dailyTrials, split] = await Promise.all([
     fetchCampaignStats(src.capsuled, windowFrom, addDaysIso(mid, -1)),
     fetchCampaignStats(src.capsuled, mid, dateTo),
     src.posthog ? fetchCampaignHosts(src.posthog, windowFrom, dateTo).catch(() => new Map<string, string>()) : Promise.resolve(new Map<string, string>()),
     src.posthog && trialStep ? fetchDailyStepCounts(src.posthog, trialStep, windowFrom, dateTo).catch(() => null) : Promise.resolve(null),
+    src.posthog ? fetchFunnelSplit(src.posthog, windowFrom, dateTo).catch(() => null) : Promise.resolve(null),
   ]);
   // Кампания «отслеживается» в PostHog, если у неё есть экраны воронки за окно; тогда 0 триалов — это настоящий ноль
   const campaigns = mapCapsuledRows([...extractRows(a.raw), ...extractRows(b.raw)]).map((c) => {
@@ -129,6 +133,22 @@ export async function getBenchmarks(
   });
   const productOf = (c: AdCampaignStats) => detectProduct(c, hosts.get(c.campaignId)).product;
   const value = computeBenchmarks(campaigns, productOf, windowFrom, dateTo, targetCpaOf);
+  // Разрез по воронкам: главная воронка кампании по посетителям, иначе известная воронка в названии
+  const known = new Set<string>();
+  for (const list of split?.values() ?? []) for (const x of list) known.add(x.alias);
+  const byFunnel = new Map<string, AdCampaignStats[]>();
+  for (const c of campaigns) {
+    const f = split?.get(c.campaignId)?.[0]?.alias ?? funnelFromName(c.campaignName, known) ?? NO_FUNNEL;
+    const list = byFunnel.get(f);
+    if (list) list.push(c);
+    else byFunnel.set(f, [c]);
+  }
+  value.funnels = {};
+  for (const [f, list] of byFunnel) {
+    const segments = computeBenchmarks(list, productOf, windowFrom, dateTo, targetCpaOf).segments;
+    const total = segments["*|*"];
+    if (total) value.funnels[f] = { campaigns: total.campaigns, spend: total.spend, segments };
+  }
   cache = { at: Date.now(), key: dateTo, value };
   return value;
 }

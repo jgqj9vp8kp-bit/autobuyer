@@ -14,6 +14,7 @@ import { defaultRange, evaluateCached } from "@/lib/evaluate";
 import { adsetViews, campaignAdsets } from "@/lib/adsets";
 import { bucketCpa } from "@/lib/benchmarks";
 import { CHANNEL_LABEL } from "@/lib/channels";
+import { FUNNEL_SOURCE_LABEL, funnelHint, parseFunnelParam, sharePct } from "@/lib/funnels";
 import { trialsNote } from "@/lib/trials";
 import { addDaysIso, fmtDate, fmtMoney, fmtNum, fmtPct, fmtStart, fmtStatus } from "@/lib/format";
 import { scoreHistoryCached } from "@/lib/history";
@@ -63,7 +64,7 @@ export default async function CampaignPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ from?: string; to?: string; r?: string; hist?: string; product?: string; channel?: string; adset?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; r?: string; hist?: string; product?: string; channel?: string; adset?: string; funnel?: string }>;
 }) {
   const { id: rawId } = await params;
   // id кампании может содержать пробелы (TikTok: "BR_hand_1-5 PR") — в params он приходит закодированным
@@ -110,7 +111,9 @@ export default async function CampaignPage({
   // В другом периоде адсета из ссылки может не быть: тогда экраны нужны по всей кампании
   const screenRows = sp.adset && !selected ? await campaignScreensCached(ad.campaignId, from, to) : requestedScreens;
   const screenFlow = buildScreenFlow(screenRows, cfg.funnel);
-  const backQuery = `from=${from}&to=${to}&channel=${sp.channel ?? row.channel}${sp.product ? `&product=${sp.product}` : ""}`;
+  const backFunnel = parseFunnelParam(sp.funnel);
+  const backQuery = `from=${from}&to=${to}&channel=${sp.channel ?? row.channel}${sp.product ? `&product=${sp.product}` : ""}${backFunnel ? `&funnel=${backFunnel}` : ""}`;
+  const fi = row.funnelInfo;
   const scored = history.points.filter((p) => p.verdict !== "NO_DATA");
   const first = scored[0];
   const last = scored[scored.length - 1];
@@ -145,7 +148,7 @@ export default async function CampaignPage({
 
       <Card className="flex flex-wrap items-center gap-6">
         <ScoreRing score={score.score} grade={score.grade} />
-        <div className="min-w-0 flex-1">
+        <div className="min-w-[min(260px,100%)] flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <VerdictPill verdict={score.verdict} />
             <span className="text-xs text-muted">{meta.hint}</span>
@@ -156,10 +159,20 @@ export default async function CampaignPage({
               {product ? PRODUCT_LABEL[product] : "продукт не определён"}
             </span>{" "}
             · {CHANNEL_LABEL[row.channel]} · {ad.campaignId} · {ad.buyer ?? "—"} · {ad.geo ?? "—"} · {ad.accountName ?? ad.accountId ?? ""} · {fmtStatus(ad)}
-            {funnel.funnelAlias && (
+            {fi.alias && fi.source && (
               <>
                 {" "}
-                · воронка <span className="font-mono text-ink">{funnel.funnelAlias}</span>
+                · воронка{" "}
+                <span className="font-mono text-ink" title={funnelHint(fi)}>
+                  {fi.alias}
+                </span>
+                {fi.source !== "posthog" && ` (${FUNNEL_SOURCE_LABEL[fi.source]})`}
+                {fi.share !== null && fi.others.length > 0 && (
+                  <span className="text-warn" title={funnelHint(fi)}>
+                    {" "}
+                    ({sharePct(fi.share)} посетителей; ещё {fi.others.map((o) => `${o.alias} ${sharePct(o.share)}`).join(", ")})
+                  </span>
+                )}
               </>
             )}
           </div>

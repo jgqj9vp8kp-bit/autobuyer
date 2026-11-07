@@ -7,6 +7,7 @@ import { ArrowDown, ArrowUp, ChevronRight, Search } from "lucide-react";
 import type { CampaignEvaluation, Verdict } from "@/lib/types";
 import { fmtDate, fmtMoney, fmtNum, fmtPct, fmtStart, fmtStatus } from "@/lib/format";
 import { ScoreBadge, VerdictPill } from "@/components/ui";
+import { funnelHint } from "@/lib/funnels";
 import { PRODUCT_LABEL } from "@/lib/products";
 import { trialsNote } from "@/lib/trials";
 import { VERDICT_META } from "@/lib/verdict";
@@ -56,7 +57,7 @@ export function CampaignTable({ rows, linkQuery }: { rows: CampaignEvaluation[];
       }
     };
     return rows
-      .filter((r) => (q ? `${r.ad.campaignName} ${r.ad.campaignId} ${r.ad.buyer ?? ""} ${r.product ?? ""}`.toLowerCase().includes(q.toLowerCase()) : true))
+      .filter((r) => (q ? `${r.ad.campaignName} ${r.ad.campaignId} ${r.ad.buyer ?? ""} ${r.product ?? ""} ${r.funnelInfo.alias ?? ""}`.toLowerCase().includes(q.toLowerCase()) : true))
       .filter((r) => (buyer === "all" ? true : (r.ad.buyer ?? "—") === buyer))
       .filter((r) => (geo === "all" ? true : (r.ad.geo ?? "—") === geo))
       .filter((r) => (effectiveStats === "all" ? true : effectiveStats === "posthog" ? r.ad.statsSource === "posthog" : r.ad.statsSource !== "posthog"))
@@ -197,9 +198,21 @@ export function CampaignTable({ rows, linkQuery }: { rows: CampaignEvaluation[];
                       {r.ad.campaignName}
                     </Link>
                     <div className="mt-0.5 flex items-center gap-2 text-[11px] text-muted">
-                      <span className={clsx("h-1.5 w-1.5 rounded-full", r.ad.status === "ACTIVE" ? "bg-success" : "bg-line")} title={fmtStatus(r.ad)} />
-                      <span className={clsx("font-semibold", r.product ? "text-ink" : "text-muted")}>{r.product ? PRODUCT_LABEL[r.product] : "?"}</span> ·{" "}
-                      {r.ad.statsSource === "posthog" ? <span className="text-warn">{r.ad.trafficSource ?? "нет в дашборде"}</span> : (r.ad.buyer ?? "—")} · {r.ad.geo ?? "—"} · {r.ad.campaignId}
+                      <span className={clsx("h-1.5 w-1.5 shrink-0 rounded-full", r.ad.status === "ACTIVE" ? "bg-success" : "bg-line")} title={fmtStatus(r.ad)} />
+                      {/* Одна строка с обрезкой в конце: первым прячется id, воронка остаётся видна */}
+                      <span className="min-w-0 truncate">
+                        <span className={clsx("font-semibold", r.product ? "text-ink" : "text-muted")}>{r.product ? PRODUCT_LABEL[r.product] : "?"}</span> ·{" "}
+                        {r.ad.statsSource === "posthog" ? <span className="text-warn">{r.ad.trafficSource ?? "нет в дашборде"}</span> : (r.ad.buyer ?? "—")} · {r.ad.geo ?? "—"} ·{" "}
+                        {r.funnelInfo.alias ? (
+                          <span className="font-mono" title={funnelHint(r.funnelInfo)}>
+                            {r.funnelInfo.alias}
+                            {r.funnelInfo.others.length > 0 && <span className="text-warn"> +{r.funnelInfo.others.length}</span>}
+                          </span>
+                        ) : (
+                          <span title="Воронка не определена: нет визитов в PostHog, ссылки креатива и воронки в названии">воронка ?</span>
+                        )}{" "}
+                        · {r.ad.campaignId}
+                      </span>
                     </div>
                   </td>
                   <td>

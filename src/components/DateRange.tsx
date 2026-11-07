@@ -43,13 +43,13 @@ export function DateRange({ from, to }: { from: string; to: string }) {
   })();
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <div className="flex items-center gap-1 rounded-full border border-line bg-white p-1">
+    <div className="flex max-w-full flex-wrap items-center gap-2">
+      <div className="scrollbar-thin flex max-w-full items-center gap-1 overflow-x-auto rounded-full border border-line bg-white p-1">
         {PRESETS.map((p) => (
           <button
             key={p.days}
             onClick={() => preset(p.days)}
-            className={clsx("rounded-full px-3 py-1.5 text-xs font-semibold transition", activeDays === p.days ? "bg-ink text-white" : "text-muted hover:bg-subtle hover:text-ink")}
+            className={clsx("shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-semibold transition", activeDays === p.days ? "bg-ink text-white" : "text-muted hover:bg-subtle hover:text-ink")}
           >
             {p.label}
           </button>

@@ -6,11 +6,12 @@ import { DEFAULT_PRODUCT, detectProduct, PRODUCT_KEYS } from "@/lib/products";
 import { DEFAULT_EARLY_STAGE } from "@/lib/scoring/defaultConfig";
 import { computeFunnelMetrics } from "@/lib/scoring/funnel";
 import { scoreCampaign } from "@/lib/scoring/engine";
-import { fetchCampaignStats } from "@/lib/sources/capsuled";
+import { assignFunnel, funnelFromName, funnelFromUrl, funnelFromUrls } from "@/lib/funnels";
+import { fetchCampaignStats, fetchCreativeDestinations, type CapsuledOptions } from "@/lib/sources/capsuled";
 import { generateDemo } from "@/lib/sources/demo";
-import { fetchDailyStepCounts, fetchFunnelCounts } from "@/lib/sources/posthog";
+import { fetchDailyStepCounts, fetchFunnelCounts, fetchFunnelSplit } from "@/lib/sources/posthog";
 import { applyFunnelTrials, keepFbTrials, MIN_VISITORS_FOR_FUNNEL_TRIALS, TRIAL_STEP_KEY, trialStepOf } from "@/lib/trials";
-import type { AdCampaignStats, CampaignEvaluation, EvaluationResponse, FunnelCounts, ProductKey, SourceStatus } from "@/lib/types";
+import type { AdCampaignStats, CampaignEvaluation, EvaluationResponse, FunnelAssignment, FunnelCounts, FunnelShare, ProductKey, SourceStatus } from "@/lib/types";
 
 /**
  * Оркестрация: берём кампании из дашборда, воронку из PostHog, считаем скор.
@@ -39,6 +40,17 @@ export function sourcesConfig() {
   };
 }
 
+/** Ссылки креативов меняются редко: держим их 10 минут, чтобы не тянуть уровень creative на каждый рендер */
+const destCache = new Map<string, { at: number; value: Map<string, Map<string, number>> }>();
+async function creativeDestinationsCached(opts: CapsuledOptions, dateFrom: string, dateTo: string) {
+  const key = `${dateFrom}:${dateTo}`;
+  const hit = destCache.get(key);
+  if (hit && Date.now() - hit.at < 600_000) return hit.value;
+  const value = await fetchCreativeDestinations(opts, dateFrom, dateTo);
+  destCache.set(key, { at: Date.now(), value });
+  return value;
+}
+
 export async function evaluateCampaigns(dateFrom: string, dateTo: string): Promise<EvaluationResponse> {
   // Правила у каждого продукта свои; cfg продукта по умолчанию используется для общих решений (демо, пороги выборки)
   const configs = await loadAllConfigs();
@@ -48,6 +60,8 @@ export async function evaluateCampaigns(dateFrom: string, dateTo: string): Promi
 
   let campaigns: AdCampaignStats[] | null = null;
   let funnels: FunnelCounts[] | null = null;
+  // Воронки кампании по посетителям (главная — первая); null — PostHog не ответил
+  let funnelSplit: Map<string, FunnelShare[]> | null = null;
   const funnelsByProduct: Partial<Record<ProductKey, FunnelCounts[]>> = {};
   // Триалы из воронки по дням (ключ — определение шага trial, обычно одно на все продукты)
   const dailyTrialsByStep = new Map<string, Map<string, Map<string, number>>>();
@@ -62,6 +76,9 @@ export async function evaluateCampaigns(dateFrom: string, dateTo: string): Promi
   const startsPromise: Promise<CampaignStartIndex | null> = srcCfg.live
     ? getCampaignStarts({ capsuled: srcCfg.capsuled, posthog: srcCfg.posthog }, new Date().toISOString().slice(0, 10)).catch(() => null)
     : Promise.resolve(null);
+  // Ссылки креативов — запасной источник воронки для кампаний без трекинга в PostHog
+  const destPromise: Promise<Map<string, Map<string, number>> | null> =
+    srcCfg.live && srcCfg.capsuled ? creativeDestinationsCached(srcCfg.capsuled, dateFrom, dateTo).catch(() => null) : Promise.resolve(null);
 
   if (isLiveMode()) {
     // --- Дашборд баеров
@@ -103,8 +120,12 @@ export async function evaluateCampaigns(dateFrom: string, dateTo: string): Promi
         const dailyPromise = Promise.all(
           [...trialSteps].filter(([, step]) => step).map(async ([k, step]) => [k, await fetchDailyStepCounts(opts, step!, dateFrom, dateTo).catch(() => null)] as const),
         );
+        const splitPromise = fetchFunnelSplit(opts, dateFrom, dateTo).catch(() => null);
         const results = await Promise.all([...byDef.values()].map(async (ps) => [ps, await fetchFunnelCounts(opts, configs[ps[0]].funnel, dateFrom, dateTo)] as const));
         for (const [k, m] of await dailyPromise) if (m) dailyTrialsByStep.set(k, m);
+        funnelSplit = await splitPromise;
+        // Главная воронка по посетителям вместо любой из воронок кампании
+        if (funnelSplit) for (const [, list] of results) for (const f of list) f.funnelAlias = funnelSplit.get(f.campaignId)?.[0]?.alias;
         const merged = new Map<string, FunnelCounts>();
         for (const [ps, list] of results) {
           for (const p of ps) funnelsByProduct[p] = list;
@@ -158,6 +179,20 @@ export async function evaluateCampaigns(dateFrom: string, dateTo: string): Promi
     if (cap?.ok) cap.message += bench ? `; бенчмарки сегментов за ${BENCHMARK_WINDOW_DAYS} дн.: ${Object.values(bench.segments).filter((g) => g.geo !== "*").length}` : "; бенчмарки сегментов недоступны";
   }
 
+  const dest = await destPromise;
+  // Известные воронки периода — чтобы узнать воронку в названии кампании
+  const knownFunnels = new Set<string>();
+  for (const list of funnelSplit?.values() ?? []) for (const x of list) knownFunnels.add(x.alias);
+  for (const urls of dest?.values() ?? []) for (const u of urls.keys()) {
+    const f = funnelFromUrl(u);
+    if (f) knownFunnels.add(f);
+  }
+  const funnelInfoOf = (ad: AdCampaignStats, counts: FunnelCounts | undefined): FunnelAssignment => {
+    const split = funnelSplit?.get(ad.campaignId);
+    if (!split && !funnelSplit && counts?.funnelAlias) return { alias: counts.funnelAlias, source: "posthog", share: null, others: [] };
+    return assignFunnel(split, funnelFromUrls(dest?.get(ad.campaignId)), funnelFromName(ad.campaignName, knownFunnels));
+  };
+
   const funnelById = new Map(funnels.map((f) => [f.campaignId, f]));
   const byProduct = new Map<ProductKey, Map<string, FunnelCounts>>();
   for (const p of PRODUCT_KEYS) {
@@ -194,7 +229,7 @@ export async function evaluateCampaigns(dateFrom: string, dateTo: string): Promi
           : `Расхода и CPA нет: трафик не из FB (${ad.trafficSource ?? "источник неизвестен"}), дашборд считает только Facebook. Оценка только по воронке.`,
       );
     }
-    return { ad, funnel, score, product, productSource, segment, channel: channelOf(ad) };
+    return { ad, funnel, score, product, productSource, segment, channel: channelOf(ad), funnelInfo: funnelInfoOf(ad, counts) };
   });
 
   evaluated.sort((a, b) => b.score.score - a.score.score || b.ad.spend - a.ad.spend);
